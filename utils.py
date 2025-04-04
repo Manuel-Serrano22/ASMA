@@ -5,11 +5,12 @@ def read_nodes_from_csv(filepath):
     nodes = []
     with open(filepath, mode='r', newline='', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
+        
         for row in reader:
             nodes.append({
-                'id': row['Agent ID'],
-                'x': float(row['Position_X']),
-                'y': float(row['Position_Y'])
+                'id': row['ID'],
+                'x': float(row['Latitude']),
+                'y': float(row['Longitude'])
             })
     return nodes
 
@@ -25,10 +26,31 @@ def build_distance_dict(nodes):
             if id_i == id_j:
                 distance[id_i][id_j] = 0.0
             else:
-                dx = nodes[i]['x'] - nodes[j]['x']
-                dy = nodes[i]['y'] - nodes[j]['y']
-                distance[id_i][id_j] = math.hypot(dx, dy)
+                lat1 = nodes[i]['x']
+                lat2 = nodes[j]['x']
+                long1 = nodes[i]['y'] 
+                long2 = nodes[j]['y']
+                distance[id_i][id_j] = haversine(lat1, lat2, long1,long2)
     return distance
+
+def haversine(lat1, lon1, lat2, lon2):
+     
+    # distance between latitudes
+    # and longitudes
+    dLat = (lat2 - lat1) * math.pi / 180.0
+    dLon = (lon2 - lon1) * math.pi / 180.0
+ 
+    # convert to radians
+    lat1 = (lat1) * math.pi / 180.0
+    lat2 = (lat2) * math.pi / 180.0
+ 
+    # apply formulae
+    a = (pow(math.sin(dLat / 2), 2) +
+         pow(math.sin(dLon / 2), 2) *
+             math.cos(lat1) * math.cos(lat2));
+    rad = 6371
+    c = 2 * math.asin(math.sqrt(a))
+    return rad * c
 
 
 def print_distance_matrix(distance_dict):
@@ -78,3 +100,9 @@ def get_distance_truck_to_bin(truck_position, bin_position):
     dy = truck_position[1] - bin_position[1]
     
     return math.hypot(dx, dy)
+
+
+# testing
+graph_nodes = read_nodes_from_csv("dataset/dataset.csv")
+print(graph_nodes)
+print(build_distance_dict(graph_nodes))
