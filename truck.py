@@ -19,6 +19,18 @@ class TruckAgent(Agent):
         # shared state between behaviours
         self.currentProposal = None  # store currently processed proposal
 
+    class BinStatusReceiver(CyclicBehaviour):
+        async def run(self):
+            msg = await self.receive(timeout=2)
+            if msg and msg.metadata.get("type") == "bin_status_update":
+                bin_id, fullness, capacity, latitude, longitude = msg.body.strip().split(";")
+                fullness = int(fullness)
+                capacity = int(capacity)
+                latitude = float(latitude)
+                longitude = float(longitude)
+                # É preciso decidir o que vamos fazer com a informação recebida
+                print(f"TRUCK: Received bin update -> {bin_id}: {fullness}/{capacity}/{latitude}/{longitude}")
+
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
         class ReceiveContract(State):
@@ -103,6 +115,7 @@ class TruckAgent(Agent):
     async def setup(self):
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
+        self.add_behaviour(self.BinStatusReceiver())
 
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self, proposal):

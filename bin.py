@@ -19,21 +19,36 @@ TRUCKS_NUMBER = 1
 #NOTA: usar um behaviour ciclico para verificar estado do caixote, e acrescentar separado um behaviour de FSM quando está cheio não funciona!!
 # se respostas do contrato demorarem muito, esse behaviour cíclico spawna várias instâncias do behaviour de contrato em vez de esperar que um FSM termine o contrato
 
-bin_fullness_threshold = 80 # after this value, the bin sends contract to trucks
+#bin_fullness_threshold = 80 # after this value, the bin sends contract to trucks
 
 class BinAgent(Agent):
 
-    def __init__(self, jid, password):
+    def __init__(self, jid, password, max_capacity, known_trucks, latitude, longitude):
         super().__init__(jid, password)
         # shared state between behaviours
+        self.latitude = latitude
+        self.longitude = longitude
         self.bin_fullness = 0
         self.truck_responses = {}
+        self.max_capacity = max_capacity
+        self.threshold_ratio = 0.8 # 80% of the bin max capacity
+        self.known_trucks = known_trucks # list of known trucks
 
     # progressively fill bin with garbage
     class FillBinBehaviour(PeriodicBehaviour):
         async def run(self):
-            self.agent.bin_fullness += 260
+            self.agent.bin_fullness += 10
             print(f"BIN: Bin fullness: {self.agent.bin_fullness}")
+
+    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
+        async def run(self):
+            for truck_jid in self.agent.known_trucks:
+                msg = Message(to=truck_jid)
+                msg.set_metadata("performative", "inform")
+                msg.set_metadata("type", "bin_status_update")
+                msg.body = f"{self.agent.jid};{self.agent.bin_fullness};{self.agent.max_capacity};{self.agent.latitude};{self.agent.longitude}"
+                await self.send(msg)
+                #print(f"BIN: Sent capacity update to {truck_jid} -> {msg.body}")
         
     class BinFSMBehaviour(FSMBehaviour):
         async def on_start(self):
@@ -45,15 +60,15 @@ class BinAgent(Agent):
     #checks how full the bin is, and starts contract if necessary
     class checkBin(State):
         async def run(self):
-            # print("Entering state 1 bin")
-            if (self.agent.bin_fullness > bin_fullness_threshold):
+            #print("Entering state 1 bin")
+            if (self.agent.bin_fullness > self.agent.max_capacity * self.agent.threshold_ratio):
                 print("BIN: Bin full, sending contract to trucks")
                 self.set_next_state(BIN_STATE_TWO)
             else:
-                pass
-                # print("BIN: Bin not full, repeating check in next iteration")
-                # await asyncio.sleep(1) # only check every 1 seconds
-                # self.set_next_state(BIN_STATE_ONE)
+                #pass
+                print("BIN: Bin not full, repeating check in next iteration")
+                await asyncio.sleep(1) # only check every 1 seconds
+                self.set_next_state(BIN_STATE_ONE)
 
     # send contract to trucks, and wait for their responses, until all response/timeout
     class sendContractWaitResponses(State):
@@ -141,6 +156,8 @@ class BinAgent(Agent):
     async def setup(self):
         binFill = self.FillBinBehaviour(period=1) # every 1 seconds, fill the bin with garbage
         self.add_behaviour(binFill)
+        sendUpdate = self.SendCapacityUpdateBehaviour(period=5)  # every 5 seconds, send update to trucks
+        self.add_behaviour(sendUpdate)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
 
@@ -152,7 +169,7 @@ class BinAgent(Agent):
         fsm.add_state(name=BIN_STATE_THREE, state=self.proposalSelection())
 
         #NOTE: must register all transitions here, or they dont work when called in run functions of states !!
-        # fsm.add_transition(source=BIN_STATE_ONE, dest=BIN_STATE_ONE)
+        fsm.add_transition(source=BIN_STATE_ONE, dest=BIN_STATE_ONE)
         fsm.add_transition(source=BIN_STATE_ONE, dest=BIN_STATE_TWO)
         fsm.add_transition(source=BIN_STATE_TWO, dest=BIN_STATE_ONE)
         fsm.add_transition(source=BIN_STATE_TWO, dest=BIN_STATE_TWO)
@@ -174,10 +191,9 @@ async def main():
     truck_agent = truck.TruckAgent("agente2@localhost", SPADE_PASS)
     await truck_agent.start()
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
-
     await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS)
+    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 1000, ["agente2@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10000")
 
