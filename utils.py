@@ -30,7 +30,7 @@ def build_distance_dict(nodes):
                 lat2 = nodes[j]['x']
                 long1 = nodes[i]['y'] 
                 long2 = nodes[j]['y']
-                distance[id_i][id_j] = haversine(lat1, lat2, long1,long2)
+                distance[id_i][id_j] = haversine(lat1, long1, lat2, long2)
     return distance
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -47,7 +47,7 @@ def haversine(lat1, lon1, lat2, lon2):
     # apply formulae
     a = (pow(math.sin(dLat / 2), 2) +
          pow(math.sin(dLon / 2), 2) *
-             math.cos(lat1) * math.cos(lat2));
+             math.cos(lat1) * math.cos(lat2))
     rad = 6371
     c = 2 * math.asin(math.sqrt(a))
     return rad * c
