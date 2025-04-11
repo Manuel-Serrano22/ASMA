@@ -34,11 +34,47 @@ class BinAgent(Agent):
         self.threshold_ratio = 0.8 # 80% of the bin max capacity
         self.known_trucks = known_trucks # list of known trucks
 
+        self.time_full_start = None # moment it started to be full
+        self.total_time_full = 0 # total time the bin has been full
+        self.total_overflow = 0 # total waste above capacity
+        self.last_overflow = 0 # last waste above capacity
+
     # progressively fill bin with garbage
     class FillBinBehaviour(PeriodicBehaviour):
         async def run(self):
-            self.agent.bin_fullness += 10
+            self.agent.bin_fullness += 100
             print(f"BIN: Bin fullness: {self.agent.bin_fullness}")
+
+            # Check if it is above capacity.
+            if self.agent.bin_fullness > self.agent.max_capacity:
+                # Start counting time if not already counting
+                if self.agent.time_full_start is None:
+                    self.agent.time_full_start = self.agent.time
+
+                current_overflow = self.agent.bin_fullness - self.agent.max_capacity
+                diff = current_overflow - self.agent.last_overflow
+                self.agent.total_overflow += diff
+                self.agent.last_overflow = current_overflow
+            else:
+                # If it was counting and is no longer full, stop the timer
+                if self.agent.time_full_start is not None:  
+                    duration = self.agent.time - self.agent.time_full_start
+                    self.agent.total_time_full += duration
+                    self.agent.time_full_start = None
+
+    class UpdateTimeBehaviour(PeriodicBehaviour):
+        async def run(self):
+            self.agent.time += 1 # increment time every second
+
+    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
+        async def run(self):
+            for truck_jid in self.agent.known_trucks:
+                msg = Message(to=truck_jid)
+                msg.set_metadata("performative", "inform")
+                msg.set_metadata("type", "bin_status_update")
+                msg.body = f"{self.agent.jid};{self.agent.bin_fullness};{self.agent.max_capacity};{self.agent.latitude};{self.agent.longitude}"
+                await self.send(msg)
+                #print(f"BIN: Sent capacity update to {truck_jid} -> {msg.body}")
         
     class BinFSMBehaviour(FSMBehaviour):
         async def on_start(self):
@@ -138,12 +174,16 @@ class BinAgent(Agent):
             # if bin successfully cleaned, reset trucks and bin fullness, and go back to state one
             if result_reply.metadata["performative"] == "inform-done":
                 print(f"BIN: Received success result from truck {result_reply.sender} with content {result_reply.body}")
-                #bin_id, capacity = msg.body.strip().split(";")
-                #truck_id = int(truck_id)
-                #capacity = int(capacity)
-            
+
+                # Stop the timer if it is still running
+                if self.agent.time_full_start is not None:
+                    duration = self.agent.time - self.agent.time_full_start
+                    self.agent.total_time_full += duration
+                    self.agent.time_full_start = None
+
                 self.agent_truck_responses = {} # reset trucks
-                self.agent.bin_fullness = 0 #capacity  # subtract what the truck collected
+                self.agent.bin_fullness = 0 # reset bin fullness
+                self.agent.last_overflow = 0 # reset last overflow
                 self.set_next_state(BIN_STATE_ONE) # transitions again to state one
             
             # if truck failed, ignore it in the next iteration, or go back to state two if all trucks failed
@@ -158,6 +198,8 @@ class BinAgent(Agent):
         self.add_behaviour(binFill)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
+        self.time = 0 # time in seconds, used to calculate how long the bin has been full
+        self.add_behaviour(self.UpdateTimeBehaviour(period=1)) # every 1 seconds, update time
 
     # setup the transition and states for the fsm behaviour
     def setupFSMBehaviour(self):
@@ -194,6 +236,19 @@ async def main():
     fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 50, ["agente2@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10000")
+
+    sim_duration = 30 # seconds
+    await asyncio.sleep(sim_duration)
+
+    # If the simulation ends while the bin is still full, the time_full_start is still running 
+    if fsmagent.time_full_start is not None:
+        duration = fsmagent.time - fsmagent.time_full_start
+        fsmagent.total_time_full += duration
+        fsmagent.time_full_start = None
+
+    print("\n--- BIN METRICS ---")
+    print(f"Total time bin was full: {fsmagent.total_time_full:.2f} seconds")
+    print(f"Total overflow accumulated: {fsmagent.total_overflow:.2f} units")
 
     await spade.wait_until_finished(truck_agent)
     await spade.wait_until_finished(fsmagent)
