@@ -82,7 +82,7 @@ class BinAgent(Agent):
                     self.truck_answers += 1
                     print(f"BIN: Waiting for truck responses... {self.truck_answers}/{TRUCKS_NUMBER}")
                     if reply_msg.metadata["performative"] == "propose":
-                        self.agent.truck_responses[reply_msg.sender] = int(reply_msg.body)
+                        self.agent.truck_responses[reply_msg.sender] = reply_msg.body
                         print(f"BIN: Truck {reply_msg.sender} proposed {reply_msg.body}")
 
                     elif reply_msg.metadata["performative"] == "refuse":
@@ -117,14 +117,18 @@ class BinAgent(Agent):
                 if (truck == best_truck):
                     print(f"BIN: Sending accept-proposal to truck {truck}")
                     msg.set_metadata("performative", "accept-proposal")
-                   
+                    print(f"test {response}") 
                 else:
                     print(f"BIN: Sending reject-proposal to truck {truck}")
                     msg.set_metadata("performative", "reject-proposal")
                 msg.body = str(response) # need to remind the truck of the proposal ?
                 await self.send(msg)
-
-            result_reply = await self.receive(timeout=msg.body)
+            
+            # Converting string to float then rounding out the time
+            time = float(msg.body)
+            await_time = round(time,0)
+            print(f"Waiting {await_time} seconds")
+            result_reply = await self.receive(timeout=await_time)
 
             if (not result_reply):
                 print("BIN: Timeout waiting for truck results")
@@ -187,7 +191,7 @@ async def main():
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
     await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 100, ["agente2@localhost"], 40.0, -8.0)
+    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 50, ["agente2@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10000")
 

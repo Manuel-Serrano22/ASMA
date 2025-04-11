@@ -58,7 +58,7 @@ class TruckAgent(Agent):
                     bin_longitude = self.agent.bin_stats[2]
                     truck_to_bin_dist = haversine(bin_latitute,bin_longitude, self.agent.lat, self.agent.long)
                     self.agent.time_to_reach_bin = truck_to_bin_dist / 100
-                    print("TRUCK: Time to reach bin ->" + str(time_to_reach_bin))
+                    print("TRUCK: Time to reach bin ->" + str(self.agent.time_to_reach_bin))
                    
                     reply.body = f"{self.agent.time_to_reach_bin}"  # Send a random value as proposal
                     await self.send(reply)
