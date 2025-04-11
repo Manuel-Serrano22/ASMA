@@ -39,16 +39,6 @@ class BinAgent(Agent):
         async def run(self):
             self.agent.bin_fullness += 10
             print(f"BIN: Bin fullness: {self.agent.bin_fullness}")
-
-    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
-        async def run(self):
-            for truck_jid in self.agent.known_trucks:
-                msg = Message(to=truck_jid)
-                msg.set_metadata("performative", "inform")
-                msg.set_metadata("type", "bin_status_update")
-                msg.body = f"{self.agent.jid};{self.agent.bin_fullness};{self.agent.max_capacity};{self.agent.latitude};{self.agent.longitude}"
-                await self.send(msg)
-                #print(f"BIN: Sent capacity update to {truck_jid} -> {msg.body}")
         
     class BinFSMBehaviour(FSMBehaviour):
         async def on_start(self):
@@ -79,6 +69,7 @@ class BinAgent(Agent):
             for truck in truck_agents:
                 msg = Message(to=truck)
                 msg.set_metadata("performative", "cfp")
+                msg.body = f"{self.agent.bin_fullness};{self.agent.latitude};{self.agent.longitude}"
                 await self.send(msg)
                 print("BIN: Sent contract cfp to truck", truck)
 
@@ -126,13 +117,14 @@ class BinAgent(Agent):
                 if (truck == best_truck):
                     print(f"BIN: Sending accept-proposal to truck {truck}")
                     msg.set_metadata("performative", "accept-proposal")
+                   
                 else:
                     print(f"BIN: Sending reject-proposal to truck {truck}")
                     msg.set_metadata("performative", "reject-proposal")
                 msg.body = str(response) # need to remind the truck of the proposal ?
                 await self.send(msg)
 
-            result_reply = await self.receive(timeout=1)
+            result_reply = await self.receive(timeout=msg.body)
 
             if (not result_reply):
                 print("BIN: Timeout waiting for truck results")
@@ -142,8 +134,12 @@ class BinAgent(Agent):
             # if bin successfully cleaned, reset trucks and bin fullness, and go back to state one
             if result_reply.metadata["performative"] == "inform-done":
                 print(f"BIN: Received success result from truck {result_reply.sender} with content {result_reply.body}")
+                #bin_id, capacity = msg.body.strip().split(";")
+                #truck_id = int(truck_id)
+                #capacity = int(capacity)
+            
                 self.agent_truck_responses = {} # reset trucks
-                self.agent.bin_fullness = 0 # reset bin fullness
+                self.agent.bin_fullness = 0 #capacity  # subtract what the truck collected
                 self.set_next_state(BIN_STATE_ONE) # transitions again to state one
             
             # if truck failed, ignore it in the next iteration, or go back to state two if all trucks failed
@@ -156,8 +152,6 @@ class BinAgent(Agent):
     async def setup(self):
         binFill = self.FillBinBehaviour(period=1) # every 1 seconds, fill the bin with garbage
         self.add_behaviour(binFill)
-        sendUpdate = self.SendCapacityUpdateBehaviour(period=5)  # every 5 seconds, send update to trucks
-        self.add_behaviour(sendUpdate)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
 
@@ -193,7 +187,7 @@ async def main():
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
     await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 1000, ["agente2@localhost"], 40.0, -8.0)
+    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 100, ["agente2@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10000")
 

@@ -104,5 +104,5 @@ def get_distance_truck_to_bin(truck_position, bin_position):
 
 # testing
 graph_nodes = read_nodes_from_csv("dataset/dataset.csv")
-print(graph_nodes)
-print(build_distance_dict(graph_nodes))
+#print(graph_nodes)
+#print(build_distance_dict(graph_nodes))

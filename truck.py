@@ -4,6 +4,7 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, CyclicBehaviour
 from spade.message import Message
 import asyncio
+from utils import haversine
 
 TRUCK_STATE_ONE = "RECEIVE_CFP"
 TRUCK_STATE_TWO = "SEND_PROPOSAL"
@@ -18,18 +19,10 @@ class TruckAgent(Agent):
 
         # shared state between behaviours
         self.currentProposal = None  # store currently processed proposal
-
-    class BinStatusReceiver(CyclicBehaviour):
-        async def run(self):
-            msg = await self.receive(timeout=2)
-            if msg and msg.metadata.get("type") == "bin_status_update":
-                bin_id, fullness, capacity, latitude, longitude = msg.body.strip().split(";")
-                fullness = int(fullness)
-                capacity = int(capacity)
-                latitude = float(latitude)
-                longitude = float(longitude)
-                # É preciso decidir o que vamos fazer com a informação recebida
-                print(f"TRUCK: Received bin update -> {bin_id}: {fullness}/{capacity}/{latitude}/{longitude}")
+        self.lat = 41.1693 
+        self.long = -8.6026
+        self.bin_stats = []
+        self.time_to_reach_bin = 0
 
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
@@ -38,7 +31,11 @@ class TruckAgent(Agent):
                 msg = await self.receive(timeout=3)  # timeout after 3 seconds
                 if msg:
                     if msg.metadata["performative"] == "cfp":
-                        print(f"TRUCK: cFP from {msg.sender}")
+                        print(f"TRUCK: cFP from {msg.sender} with body {msg.body}")
+                        bin_capacity, bin_latitute, bin_longitude = msg.body.strip().split(";")
+                        self.agent.bin_stats.append(int(bin_capacity))
+                        self.agent.bin_stats.append(float(bin_latitute))
+                        self.agent.bin_stats.append(float(bin_longitude))
                         self.agent.currentProposal = msg  # store the proposal in a queue to be processed by other behaviour
                         self.set_next_state(TRUCK_STATE_TWO)
                     else:
@@ -57,7 +54,13 @@ class TruckAgent(Agent):
                     #reply = Message(to=proposal.sender.jid)
                     reply = Message(to=str(proposal.sender))
                     reply.set_metadata("performative", "propose")
-                    reply.body = str(random.randint(0, 100))  # Send a random value as proposal
+                    bin_latitute = self.agent.bin_stats[1]
+                    bin_longitude = self.agent.bin_stats[2]
+                    truck_to_bin_dist = haversine(bin_latitute,bin_longitude, self.agent.lat, self.agent.long)
+                    self.agent.time_to_reach_bin = truck_to_bin_dist / 100
+                    print("TRUCK: Time to reach bin ->" + str(time_to_reach_bin))
+                   
+                    reply.body = f"{self.agent.time_to_reach_bin}"  # Send a random value as proposal
                     await self.send(reply)
                     print(f"TRUCK: Truck sending proposal to {proposal.sender}")
                     self.set_next_state(TRUCK_STATE_THREE) 
@@ -86,15 +89,17 @@ class TruckAgent(Agent):
 
                 elif (msg.metadata["performative"] == "accept-proposal"):
                     print(f"Proposal accepted by {msg.sender}")
-
-                    # await asyncio.sleep(2)  # Simulate action time
-                    
+                    print(f"Bin stats from proposal {self.agent.bin_stats}")
+                   
+                    await asyncio.sleep(self.agent.time_to_reach_bin)  # Simulate action time
                     print("Action performed, sending result to bin...")
 
                     # Send the result to the bin
                     #result_msg = Message(to=msg.sender.jid)
                     result_msg = Message(to=str(msg.sender))
-                    action_result = random.randint(0, 10) != 0 # simulate success or failure of operation
+                    
+                    action_result = 1
+
                     #successful cleaning
                     if action_result:
                         result_msg.set_metadata("performative", "inform-done") 
@@ -115,7 +120,6 @@ class TruckAgent(Agent):
     async def setup(self):
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
-        self.add_behaviour(self.BinStatusReceiver())
 
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self, proposal):
