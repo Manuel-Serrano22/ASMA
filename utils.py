@@ -101,6 +101,15 @@ def get_distance_truck_to_bin(truck_position, bin_position):
     
     return math.hypot(dx, dy)
 
+def get_distance_truck_to_deposit(latitude, longitude):
+    
+    return haversine(latitude, longitude, 41.1693 , -8.6026) #Update with the deposit coordinates
+
+def get_latitude_from_deposit():
+    return 41.1693 #Update with the deposit coordinates
+
+def get_longitude_from_deposit():
+    return -8.6026 #Update with the deposit coordinates
 
 # testing
 graph_nodes = read_nodes_from_csv("dataset/dataset.csv")

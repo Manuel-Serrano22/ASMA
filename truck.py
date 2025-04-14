@@ -4,27 +4,31 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, CyclicBehaviour
 from spade.message import Message
 import asyncio
-from utils import haversine
+from utils import haversine, get_distance_truck_to_deposit, get_latitude_from_deposit, get_longitude_from_deposit
 
 TRUCK_STATE_ONE = "RECEIVE_CFP"
 TRUCK_STATE_TWO = "SEND_PROPOSAL"
 TRUCK_STATE_THREE = "PERFORM_ACTION"
+LIMIT_REJECTED_PROPOSALS = 3
 
 # - Faz sentido ter um CFP a processar pedidos sequencialmente? Acho que não é possível satisfazer mais do que um pedido ao mesmo tempo, um camião ou vai a um sitio ou vai a outro, por isso paralelizar não importa, certo?
 
 class TruckAgent(Agent):
     
-    def __init__(self, jid, password):
+    def __init__(self, jid, password, latitude, longitude, capacity):
         super().__init__(jid, password)
 
         # shared state between behaviours
         self.currentProposal = None  # store currently processed proposal
-        self.lat = 41.1693 
-        self.long = -8.6026
+        self.lat = latitude
+        self.long = longitude
+        self.capacity = capacity
+        self.current_capacity = 0
         self.bins_stats = {}
         self.time_to_reach_bin = 0
         self.total_waste_collected = 0
         self.distance_traveled = 0
+        self.number_rejected_proposals = 0
 
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
@@ -76,6 +80,14 @@ class TruckAgent(Agent):
                     await self.send(reply)
 
                     print(f"TRUCK: Truck rejecting contract from {proposal.sender}")
+                    if(self.agent.number_rejected_proposals >= LIMIT_REJECTED_PROPOSALS):
+                        print("ENTREIIIIIIIIIIIIIII")
+                        dist = get_distance_truck_to_deposit(self.agent.lat, self.agent.long)
+                        self.agent.distance_traveled += dist
+                        self.agent.lat = get_latitude_from_deposit()
+                        self.agent.long = get_longitude_from_deposit()
+                        self.agent.current_capacity = 0
+                        self.agent.number_rejected_proposals = 0
                     self.set_next_state(TRUCK_STATE_ONE) # process other requests
 
         # State 2: perform action
@@ -83,7 +95,6 @@ class TruckAgent(Agent):
             async def run(self):
                 print("Waiting for bin deicision on proposal...")
                 msg = await self.receive(timeout=10)  # wait for a message for 3 seconds
-
 
                 if (not msg):
                     print("No proposal answer received during action")
@@ -113,6 +124,9 @@ class TruckAgent(Agent):
                         bin_id, response= msg.body.strip().split(";")
                         self.agent.total_waste_collected += self.agent.bins_stats[bin_id][0]
                         self.agent.distance_traveled += self.agent.bins_stats[bin_id][3]
+                        self.agent.current_capacity += self.agent.bins_stats[bin_id][0]
+                        self.agent.lat = self.agent.bins_stats[bin_id][1] # update truck position
+                        self.agent.long = self.agent.bins_stats[bin_id][2] # update truck position
                     #unsucessful cleaning
                     else:
                         result_msg.set_metadata("performative", "failure")
@@ -132,8 +146,11 @@ class TruckAgent(Agent):
 
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self, proposal):
-        # if (random.randint(0,4) == 0):
-        #     return False
+        bin_id = proposal.body.split(";")[0]
+        if(self.current_capacity + self.bins_stats[bin_id][0] > self.capacity):
+            self.number_rejected_proposals += 1
+            print("O NUMERO DE PROPOSTAS REJEITADAS É: " + str(self.number_rejected_proposals))
+            return False
         return True
 
     def setupFSMBehaviour(self):
@@ -144,12 +161,13 @@ class TruckAgent(Agent):
 
         fsm.add_transition(source=TRUCK_STATE_ONE, dest=TRUCK_STATE_ONE)
         fsm.add_transition(source=TRUCK_STATE_ONE, dest=TRUCK_STATE_TWO)
+        fsm.add_transition(source=TRUCK_STATE_TWO, dest=TRUCK_STATE_ONE)
         fsm.add_transition(source=TRUCK_STATE_TWO, dest=TRUCK_STATE_THREE)
         fsm.add_transition(source=TRUCK_STATE_THREE, dest=TRUCK_STATE_ONE)
         return fsm
 
 async def main():
-    truck_agent = TruckAgent("agente2@localhost", input("Password: "))
+    truck_agent = TruckAgent("agente2@localhost", input("Password: "), 41.1693, -8.6026, 2000)
     await truck_agent.start(auto_register=True)
 
     await spade.wait_until_finished(truck_agent)

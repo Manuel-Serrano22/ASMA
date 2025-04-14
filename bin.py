@@ -229,7 +229,7 @@ TRUCK_STATE_TWO = "PERFORM_ACTION"
 
  
 async def main():
-    truck_agent = truck.TruckAgent("agente2@localhost", SPADE_PASS)
+    truck_agent = truck.TruckAgent("agente2@localhost", SPADE_PASS, 41.1693, -8.6026, 2000)
     await truck_agent.start()
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
     await asyncio.sleep(3)
