@@ -23,9 +23,11 @@ TRUCKS_NUMBER = 1
 
 class BinAgent(Agent):
 
-    def __init__(self, jid, password, max_capacity, known_trucks, latitude, longitude):
+    def __init__(self, jid, password, id, max_capacity, known_trucks, latitude, longitude):
         super().__init__(jid, password)
         # shared state between behaviours
+
+        self.id = id
         self.latitude = latitude
         self.longitude = longitude
         self.bin_fullness = 0
@@ -38,6 +40,7 @@ class BinAgent(Agent):
         self.total_time_full = 0 # total time the bin has been full
         self.total_overflow = 0 # total waste above capacity
         self.last_overflow = 0 # last waste above capacity
+        self.waste_level = []
 
     # progressively fill bin with garbage
     class FillBinBehaviour(PeriodicBehaviour):
@@ -105,7 +108,7 @@ class BinAgent(Agent):
             for truck in truck_agents:
                 msg = Message(to=truck)
                 msg.set_metadata("performative", "cfp")
-                msg.body = f"{self.agent.bin_fullness};{self.agent.latitude};{self.agent.longitude}"
+                msg.body = f"{self.agent.id};{self.agent.bin_fullness};{self.agent.latitude};{self.agent.longitude}"
                 await self.send(msg)
                 print("BIN: Sent contract cfp to truck", truck)
 
@@ -153,16 +156,13 @@ class BinAgent(Agent):
                 if (truck == best_truck):
                     print(f"BIN: Sending accept-proposal to truck {truck}")
                     msg.set_metadata("performative", "accept-proposal")
-                    print(f"test {response}") 
+                    await_time = float(response) + 0.2
                 else:
                     print(f"BIN: Sending reject-proposal to truck {truck}")
                     msg.set_metadata("performative", "reject-proposal")
-                msg.body = str(response) # need to remind the truck of the proposal ?
+                msg.body = f"{self.agent.id};{response}" # need to remind the truck of the proposal ?
                 await self.send(msg)
             
-            # Converting string to float then rounding out the time
-            time = float(msg.body)
-            await_time = time + 0.2
             print(f"Waiting {await_time} seconds")
             result_reply = await self.receive(timeout=await_time)
 
@@ -182,6 +182,7 @@ class BinAgent(Agent):
                     self.agent.time_full_start = None
 
                 self.agent_truck_responses = {} # reset trucks
+                self.agent.waste_level.append(self.agent.bin_fullness)
                 self.agent.bin_fullness = 0 # reset bin fullness
                 self.agent.last_overflow = 0 # reset last overflow
                 self.set_next_state(BIN_STATE_ONE) # transitions again to state one
@@ -233,7 +234,7 @@ async def main():
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
     await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 500, ["agente2@localhost"], 40.0, -8.0)
+    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, "A", 500, ["agente2@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10000")
 

@@ -21,8 +21,10 @@ class TruckAgent(Agent):
         self.currentProposal = None  # store currently processed proposal
         self.lat = 41.1693 
         self.long = -8.6026
-        self.bin_stats = []
+        self.bins_stats = {}
         self.time_to_reach_bin = 0
+        self.total_waste_collected = 0
+        self.distance_traveled = 0
 
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
@@ -32,10 +34,11 @@ class TruckAgent(Agent):
                 if msg:
                     if msg.metadata["performative"] == "cfp":
                         print(f"TRUCK: cFP from {msg.sender} with body {msg.body}")
-                        bin_capacity, bin_latitute, bin_longitude = msg.body.strip().split(";")
-                        self.agent.bin_stats.append(int(bin_capacity))
-                        self.agent.bin_stats.append(float(bin_latitute))
-                        self.agent.bin_stats.append(float(bin_longitude))
+                        bin_id, bin_capacity, bin_latitute, bin_longitude = msg.body.strip().split(";")
+                        self.agent.bins_stats[bin_id] = []
+                        self.agent.bins_stats[bin_id].append(int(bin_capacity))
+                        self.agent.bins_stats[bin_id].append(float(bin_latitute))
+                        self.agent.bins_stats[bin_id].append(float(bin_longitude))
                         self.agent.currentProposal = msg  # store the proposal in a queue to be processed by other behaviour
                         self.set_next_state(TRUCK_STATE_TWO)
                     else:
@@ -52,15 +55,17 @@ class TruckAgent(Agent):
                 proposal = self.agent.currentProposal
                 if self.agent.decide_accept_proposal(proposal):
                     #reply = Message(to=proposal.sender.jid)
+                    bin_id = proposal.body.split(";")[0]
                     reply = Message(to=str(proposal.sender))
                     reply.set_metadata("performative", "propose")
-                    bin_latitute = self.agent.bin_stats[1]
-                    bin_longitude = self.agent.bin_stats[2]
+                    bin_latitute = self.agent.bins_stats[bin_id][1]
+                    bin_longitude = self.agent.bins_stats[bin_id][2]
                     truck_to_bin_dist = haversine(bin_latitute,bin_longitude, self.agent.lat, self.agent.long)
+                    self.agent.bins_stats[bin_id].append(truck_to_bin_dist)
                     self.agent.time_to_reach_bin = truck_to_bin_dist / 100
                     print("TRUCK: Time to reach bin ->" + str(self.agent.time_to_reach_bin))
                    
-                    reply.body = f"{self.agent.time_to_reach_bin}"  # Send a random value as proposal
+                    reply.body = f"{self.agent.time_to_reach_bin}" 
                     await self.send(reply)
                     print(f"TRUCK: Truck sending proposal to {proposal.sender}")
                     self.set_next_state(TRUCK_STATE_THREE) 
@@ -79,6 +84,7 @@ class TruckAgent(Agent):
                 print("Waiting for bin deicision on proposal...")
                 msg = await self.receive(timeout=10)  # wait for a message for 3 seconds
 
+
                 if (not msg):
                     print("No proposal answer received during action")
                     self.set_next_state(TRUCK_STATE_ONE)
@@ -89,7 +95,7 @@ class TruckAgent(Agent):
 
                 elif (msg.metadata["performative"] == "accept-proposal"):
                     print(f"Proposal accepted by {msg.sender}")
-                    print(f"Bin stats from proposal {self.agent.bin_stats}")
+                    #print(f"Bin stats from proposal {self.agent.bins_stats[bin_id]}")
                    
                     await asyncio.sleep(self.agent.time_to_reach_bin)  # Simulate action time
                     print("Action performed, sending result to bin...")
@@ -104,6 +110,9 @@ class TruckAgent(Agent):
                     if action_result:
                         result_msg.set_metadata("performative", "inform-done") 
                         result_msg.body = "Truck cleaned the bin!"
+                        bin_id, response= msg.body.strip().split(";")
+                        self.agent.total_waste_collected += self.agent.bins_stats[bin_id][0]
+                        self.agent.distance_traveled += self.agent.bins_stats[bin_id][3]
                     #unsucessful cleaning
                     else:
                         result_msg.set_metadata("performative", "failure")
