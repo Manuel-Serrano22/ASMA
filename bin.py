@@ -182,9 +182,14 @@ class BinAgent(Agent):
                     self.agent.time_full_start = None
 
                 self.agent_truck_responses = {} # reset trucks
-                self.agent.waste_level.append(self.agent.bin_fullness)
-                self.agent.bin_fullness = 0 # reset bin fullness
-                self.agent.last_overflow = 0 # reset last overflow
+                collected_waste = float(result_reply.body)
+                self.agent.waste_level.append(collected_waste)
+                self.agent.bin_fullness -= collected_waste
+                self.agent.bin_fullness = max(0, self.agent.bin_fullness)
+
+                if self.agent.bin_fullness <= self.agent.max_capacity:
+                    self.agent.last_overflow = 0 # reset last overflow
+
                 self.set_next_state(BIN_STATE_ONE) # transitions again to state one
             
             # if truck failed, ignore it in the next iteration, or go back to state two if all trucks failed
