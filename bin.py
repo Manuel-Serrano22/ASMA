@@ -162,7 +162,7 @@ class BinAgent(Agent):
             
             # Converting string to float then rounding out the time
             time = float(msg.body)
-            await_time = round(time,0)
+            await_time = time + 0.2
             print(f"Waiting {await_time} seconds")
             result_reply = await self.receive(timeout=await_time)
 
@@ -233,7 +233,7 @@ async def main():
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
     await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 50, ["agente2@localhost"], 40.0, -8.0)
+    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, 500, ["agente2@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10000")
 
