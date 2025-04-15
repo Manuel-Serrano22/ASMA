@@ -37,7 +37,7 @@ Variáveis necessárias para implementar as métricas pedidas no projeto
 **Truck**
 
  - FSM, recebe prospota + calcula distância ao Bin + envia resposta + espera resposta + executa tarefa (caso seja escolhido); (Afonso) (In Progress)
- - Periodicamente, verificar a sua capacidade => Periódico; (Manuel) (In Progress)
+ - Periodicamente, verificar a sua capacidade => Periódico; ✅
 
 **Bin**
 
