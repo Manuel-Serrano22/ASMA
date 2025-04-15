@@ -9,7 +9,6 @@ from utils import haversine, get_distance_truck_to_deposit, get_latitude_from_de
 TRUCK_STATE_ONE = "RECEIVE_CFP"
 TRUCK_STATE_TWO = "SEND_PROPOSAL"
 TRUCK_STATE_THREE = "PERFORM_ACTION"
-LIMIT_REJECTED_PROPOSALS = 3
 
 # - Faz sentido ter um CFP a processar pedidos sequencialmente? Acho que não é possível satisfazer mais do que um pedido ao mesmo tempo, um camião ou vai a um sitio ou vai a outro, por isso paralelizar não importa, certo?
 
@@ -28,7 +27,6 @@ class TruckAgent(Agent):
         self.time_to_reach_bin = 0
         self.total_waste_collected = 0
         self.distance_traveled = 0
-        self.number_rejected_proposals = 0
 
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
@@ -57,7 +55,7 @@ class TruckAgent(Agent):
         class ProcessContract(State):
             async def run(self):
                 proposal = self.agent.currentProposal
-                if self.agent.decide_accept_proposal(proposal):
+                if self.agent.decide_accept_proposal():
                     #reply = Message(to=proposal.sender.jid)
                     bin_id = proposal.body.split(";")[0]
                     reply = Message(to=str(proposal.sender))
@@ -80,13 +78,7 @@ class TruckAgent(Agent):
                     await self.send(reply)
 
                     print(f"TRUCK: Truck rejecting contract from {proposal.sender}")
-                    if(self.agent.number_rejected_proposals >= LIMIT_REJECTED_PROPOSALS):
-                        dist = get_distance_truck_to_deposit(self.agent.lat, self.agent.long)
-                        self.agent.distance_traveled += dist
-                        self.agent.lat = get_latitude_from_deposit()
-                        self.agent.long = get_longitude_from_deposit()
-                        self.agent.current_capacity = 0
-                        self.agent.number_rejected_proposals = 0
+
                     self.set_next_state(TRUCK_STATE_ONE) # process other requests
 
         # State 2: perform action
@@ -130,6 +122,9 @@ class TruckAgent(Agent):
                         self.agent.current_capacity += waste_to_collect
                         self.agent.lat = self.agent.bins_stats[bin_id][1] # update truck position
                         self.agent.long = self.agent.bins_stats[bin_id][2] # update truck position
+                        if(self.agent.current_capacity == self.agent.capacity):
+                            self.agent.go_to_deposit()
+                    
                     #unsucessful cleaning
                     else:
                         result_msg.set_metadata("performative", "failure")
@@ -148,13 +143,20 @@ class TruckAgent(Agent):
         self.add_behaviour(fsm)
 
     # Simulation of logic to accept a proposal
-    def decide_accept_proposal(self, proposal):
+    def decide_accept_proposal(self):
         #bin_id = proposal.body.split(";")[0]
-        if(self.current_capacity >= self.capacity):
-            self.number_rejected_proposals += 1
+        if(self.current_capacity == self.capacity):
+            self.go_to_deposit()
             return False
         
         return True #allow partial waste collection
+    
+    def go_to_deposit(self):
+        dist = get_distance_truck_to_deposit(self.lat, self.long)
+        self.distance_traveled += dist
+        self.lat = get_latitude_from_deposit()
+        self.long = get_longitude_from_deposit()
+        self.current_capacity = 0
 
     def setupFSMBehaviour(self):
         fsm = self.TruckFSMBehaviour()
