@@ -3,12 +3,6 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, PeriodicBehaviour, OneShotBehaviour
 import random
 from spade.message import Message
-import asyncio
-import os
-from dotenv import load_dotenv
-import truck as truck
-load_dotenv()
-SPADE_PASS = os.getenv('SPADE_PASS')
 
 BIN_STATE_ONE = "CHECK_BIN"
 BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
@@ -23,7 +17,7 @@ TRUCKS_NUMBER = 1
 
 class BinAgent(Agent):
 
-    def __init__(self, jid, password, id, max_capacity, known_trucks, latitude, longitude):
+    def __init__(self, jid, password, id, known_trucks, latitude, longitude):
         super().__init__(jid, password)
         # shared state between behaviours
 
@@ -32,7 +26,7 @@ class BinAgent(Agent):
         self.longitude = longitude
         self.bin_fullness = 0
         self.truck_responses = {}
-        self.max_capacity = max_capacity
+        self.max_capacity = 20
         self.threshold_ratio = 0.8 # 80% of the bin max capacity
         self.known_trucks = known_trucks # list of known trucks
 
@@ -233,36 +227,4 @@ TRUCK_STATE_TWO = "PERFORM_ACTION"
 # - Faz sentido ter um CFP a processar pedidos sequencialmente? Acho que não é possível satisfazer mais do que um pedido ao mesmo tempo, um camião ou vai a um sitio ou vai a outro, por isso paralelizar não importa, certo?
 
  
-async def main():
-    truck_agent = truck.TruckAgent("agente2@localhost", SPADE_PASS, 41.1693, -8.6026, 2000)
-    await truck_agent.start()
-    truck_agent.web.start(hostname="127.0.0.1", port="10001")
-    await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, "A", 500, ["agente2@localhost"], 40.0, -8.0)
-    await fsmagent.start(auto_register=True)
-    fsmagent.web.start(hostname="127.0.0.1", port="10000")
-
-    sim_duration = 30 # seconds
-    await asyncio.sleep(sim_duration)
-
-    # If the simulation ends while the bin is still full, the time_full_start is still running 
-    if fsmagent.time_full_start is not None:
-        duration = fsmagent.time - fsmagent.time_full_start
-        fsmagent.total_time_full += duration
-        fsmagent.time_full_start = None
-
-    print("\n--- BIN METRICS ---")
-    print(f"Total time bin was full: {fsmagent.total_time_full:.2f} seconds")
-    print(f"Total overflow accumulated: {fsmagent.total_overflow:.2f} units")
-
-    await spade.wait_until_finished(truck_agent)
-    await spade.wait_until_finished(fsmagent)
-    await fsmagent.stop()
-    print("BIN: Agent finished")
-
-    await truck_agent.stop()
-    print("TRUCK: Agent finished")
-
-if __name__ == "__main__":
-    spade.run(main())

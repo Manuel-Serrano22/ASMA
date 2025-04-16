@@ -14,14 +14,14 @@ TRUCK_STATE_THREE = "PERFORM_ACTION"
 
 class TruckAgent(Agent):
     
-    def __init__(self, jid, password, latitude, longitude, capacity):
+    def __init__(self, jid, password, latitude, longitude):
         super().__init__(jid, password)
 
         # shared state between behaviours
         self.currentProposal = None  # store currently processed proposal
         self.lat = latitude
         self.long = longitude
-        self.capacity = capacity
+        self.max_capacity = 80
         self.current_capacity = 0
         self.bins_stats = {}
         self.time_to_reach_bin = 0
