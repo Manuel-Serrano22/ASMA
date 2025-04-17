@@ -3,7 +3,7 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, PeriodicBehaviour, OneShotBehaviour
 import random
 from spade.message import Message
-
+import asyncio
 BIN_STATE_ONE = "CHECK_BIN"
 BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
@@ -97,9 +97,9 @@ class BinAgent(Agent):
     class sendContractWaitResponses(State):
         async def run(self):
             print("Entering state 2 bin")
-            truck_agents = ["agente2@localhost"]
+            # truck_agents = ["agente2@localhost"] -> hard coded ...
             # send contract to all trucks
-            for truck in truck_agents:
+            for truck in self.agent.known_trucks:
                 msg = Message(to=truck)
                 msg.set_metadata("performative", "cfp")
                 msg.body = f"{self.agent.id};{self.agent.bin_fullness};{self.agent.latitude};{self.agent.longitude}"

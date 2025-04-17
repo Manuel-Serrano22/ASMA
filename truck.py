@@ -113,7 +113,7 @@ class TruckAgent(Agent):
                         result_msg.set_metadata("performative", "inform-done") 
                         bin_id, response= msg.body.strip().split(";")
                         bin_waste = self.agent.bins_stats[bin_id][0]
-                        truck_remaining_capacity = self.agent.capacity - self.agent.current_capacity
+                        truck_remaining_capacity = self.agent.max_capacity - self.agent.current_capacity
                         waste_to_collect = min(bin_waste, truck_remaining_capacity)
                         result_msg.body = str(waste_to_collect)
 
@@ -122,7 +122,7 @@ class TruckAgent(Agent):
                         self.agent.current_capacity += waste_to_collect
                         self.agent.lat = self.agent.bins_stats[bin_id][1] # update truck position
                         self.agent.long = self.agent.bins_stats[bin_id][2] # update truck position
-                        if(self.agent.current_capacity == self.agent.capacity):
+                        if(self.agent.current_capacity == self.agent.max_capacity):
                             self.agent.go_to_deposit()
                     
                     #unsucessful cleaning
@@ -145,7 +145,7 @@ class TruckAgent(Agent):
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self):
         #bin_id = proposal.body.split(";")[0]
-        if(self.current_capacity == self.capacity):
+        if(self.current_capacity == self.max_capacity):
             self.go_to_deposit()
             return False
         

@@ -35,7 +35,7 @@ async def main():
         truck_jid = "agente" + str(i) + "@localhost"
         # update the contact_list
         contact_list.append(truck_jid)
-
+        print("Creating truck agent with JID: " + truck_jid)
         # jid, password, latitude, longitude, capacity
         truck_agent = truck.TruckAgent(truck_jid, SPADE_PASS, deposito_lat, deposito_long)
         await truck_agent.start()
@@ -44,9 +44,9 @@ async def main():
         await asyncio.sleep(3)
         port += 1
 
-    
     for _, row in df[:-1].iterrows():
         jid = "agente" + row['ID'] + "@localhost"
+        print("Creating bin agent with JID: " + jid)
         iD = row['ID']
         latitude = row['Latitude']
         longitude = row['Longitude']
@@ -54,6 +54,7 @@ async def main():
         await fsmagent.start(auto_register=True)
         port_str = str(port)
         fsmagent.web.start(hostname="127.0.0.1", port=port_str)
+        await asyncio.sleep(3)
         port += 1
     
     
