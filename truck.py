@@ -21,7 +21,7 @@ class TruckAgent(Agent):
         self.currentProposal = None  # store currently processed proposal
         self.lat = latitude
         self.long = longitude
-        self.capacity = 80
+        self.capacity = 100
         self.current_waste= 0
         self.bins_stats = {}
         self.time_to_reach_bin = 0
