@@ -21,8 +21,8 @@ class TruckAgent(Agent):
         self.currentProposal = None  # store currently processed proposal
         self.lat = latitude
         self.long = longitude
-        self.max_capacity = 80
-        self.current_capacity = 0
+        self.capacity = 80
+        self.current_waste= 0
         self.bins_stats = {}
         self.time_to_reach_bin = 0
         self.total_waste_collected = 0
@@ -67,7 +67,8 @@ class TruckAgent(Agent):
                     self.agent.time_to_reach_bin = truck_to_bin_dist / 100
                     print("TRUCK: Time to reach bin ->" + str(self.agent.time_to_reach_bin))
                    
-                    reply.body = f"{self.agent.time_to_reach_bin}" 
+                    available_capacity = self.agent.capacity - self.agent.current_waste
+                    reply.body = f"{self.agent.time_to_reach_bin};{available_capacity}" 
                     await self.send(reply)
                     print(f"TRUCK: Truck sending proposal to {proposal.sender}")
                     self.set_next_state(TRUCK_STATE_THREE) 
@@ -111,18 +112,17 @@ class TruckAgent(Agent):
                     #successful cleaning
                     if action_result:
                         result_msg.set_metadata("performative", "inform-done") 
-                        bin_id, response= msg.body.strip().split(";")
-                        bin_waste = self.agent.bins_stats[bin_id][0]
-                        truck_remaining_capacity = self.agent.capacity - self.agent.current_capacity
-                        waste_to_collect = min(bin_waste, truck_remaining_capacity)
+                        bin_id, bin_time, bin_waste = msg.body.strip().split(";")
+                        truck_remaining_capacity = self.agent.capacity - self.agent.current_waste
+                        waste_to_collect = min(float(bin_waste), truck_remaining_capacity)
                         result_msg.body = str(waste_to_collect)
 
                         self.agent.total_waste_collected += waste_to_collect
                         self.agent.distance_traveled += self.agent.bins_stats[bin_id][3]
-                        self.agent.current_capacity += waste_to_collect
+                        self.agent.current_waste += waste_to_collect
                         self.agent.lat = self.agent.bins_stats[bin_id][1] # update truck position
                         self.agent.long = self.agent.bins_stats[bin_id][2] # update truck position
-                        if(self.agent.current_capacity == self.agent.capacity):
+                        if(self.agent.current_waste == self.agent.capacity):
                             self.agent.go_to_deposit()
                     
                     #unsucessful cleaning
@@ -145,7 +145,7 @@ class TruckAgent(Agent):
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self):
         #bin_id = proposal.body.split(";")[0]
-        if(self.current_capacity == self.capacity):
+        if(self.current_waste == self.capacity):
             self.go_to_deposit()
             return False
         
@@ -156,7 +156,7 @@ class TruckAgent(Agent):
         self.distance_traveled += dist
         self.lat = get_latitude_from_deposit()
         self.long = get_longitude_from_deposit()
-        self.current_capacity = 0
+        self.current_waste = 0
 
     def setupFSMBehaviour(self):
         fsm = self.TruckFSMBehaviour()

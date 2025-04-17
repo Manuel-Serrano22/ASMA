@@ -8,7 +8,7 @@ BIN_STATE_ONE = "CHECK_BIN"
 BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
 
-TRUCKS_NUMBER = 1
+TRUCKS_NUMBER = 3
 
 #NOTA: usar um behaviour ciclico para verificar estado do caixote, e acrescentar separado um behaviour de FSM quando está cheio não funciona!!
 # se respostas do contrato demorarem muito, esse behaviour cíclico spawna várias instâncias do behaviour de contrato em vez de esperar que um FSM termine o contrato
@@ -25,15 +25,16 @@ class BinAgent(Agent):
         self.latitude = latitude
         self.longitude = longitude
         self.bin_fullness = 0
+        self.bin_fullness_proposal = 0 # store the bin fullness when sending the proposal
         self.truck_responses = {}
         self.max_capacity = 20
         self.threshold_ratio = 0.8 # 80% of the bin max capacity
         self.known_trucks = known_trucks # list of known trucks
-
         self.time_full_start = None # moment it started to be full
         self.total_time_full = 0 # total time the bin has been full
-        self.total_overflow = 0 # total waste above capacity
-        self.last_overflow = 0 # last waste above capacity
+        self.in_overflow = False
+        self.peak_overflow_cycle   = 0.0
+        self.total_overflow_peaks  = 0.0
         self.waste_level = []
 
     # progressively fill bin with garbage
@@ -42,22 +43,30 @@ class BinAgent(Agent):
             self.agent.bin_fullness += 100
             print(f"BIN: Bin fullness: {self.agent.bin_fullness}")
 
-            # Check if it is above capacity.
-            if self.agent.bin_fullness > self.agent.max_capacity:
-                # Start counting time if not already counting
+            excess = self.agent.bin_fullness - self.agent.max_capacity
+
+            if excess > 0:   
                 if self.agent.time_full_start is None:
                     self.agent.time_full_start = self.agent.time
 
-                current_overflow = self.agent.bin_fullness - self.agent.max_capacity
-                diff = current_overflow - self.agent.last_overflow
-                self.agent.total_overflow += diff
-                self.agent.last_overflow = current_overflow
+                if not self.agent.in_overflow:
+                    self.agent.in_overflow = True
+                    self.agent.peak_overflow_cycle = excess
+
+                else:
+                    if excess > self.agent.peak_overflow_cycle:
+                        self.agent.peak_overflow_cycle = excess
+
             else:
-                # If it was counting and is no longer full, stop the timer
                 if self.agent.time_full_start is not None:  
                     duration = self.agent.time - self.agent.time_full_start
                     self.agent.total_time_full += duration
                     self.agent.time_full_start = None
+
+                if self.agent.in_overflow:
+                    self.agent.total_overflow_peaks += self.agent.peak_overflow_cycle
+                    self.agent.peak_overflow_cycle = 0
+                    self.agent.in_overflow = False
 
     class UpdateTimeBehaviour(PeriodicBehaviour):
         async def run(self):
@@ -97,12 +106,12 @@ class BinAgent(Agent):
     class sendContractWaitResponses(State):
         async def run(self):
             print("Entering state 2 bin")
-            truck_agents = ["agente2@localhost"]
             # send contract to all trucks
-            for truck in truck_agents:
+            self.agent.bin_fullness_proposal = self.agent.bin_fullness
+            for truck in self.agent.known_trucks:
                 msg = Message(to=truck)
                 msg.set_metadata("performative", "cfp")
-                msg.body = f"{self.agent.id};{self.agent.bin_fullness};{self.agent.latitude};{self.agent.longitude}"
+                msg.body = f"{self.agent.id};{self.agent.bin_fullness_proposal};{self.agent.latitude};{self.agent.longitude}"
                 await self.send(msg)
                 print("BIN: Sent contract cfp to truck", truck)
 
@@ -115,8 +124,9 @@ class BinAgent(Agent):
                     self.truck_answers += 1
                     print(f"BIN: Waiting for truck responses... {self.truck_answers}/{TRUCKS_NUMBER}")
                     if reply_msg.metadata["performative"] == "propose":
-                        self.agent.truck_responses[reply_msg.sender] = reply_msg.body
-                        print(f"BIN: Truck {reply_msg.sender} proposed {reply_msg.body}")
+                        truck_time, truck_capacity = reply_msg.body.strip().split(";")
+                        self.agent.truck_responses[reply_msg.sender] = (float(truck_time), float(truck_capacity))
+                        print(f"BIN: Truck {reply_msg.sender} proposed: Time -> {truck_time}, Capacity -> {truck_capacity}")
 
                     elif reply_msg.metadata["performative"] == "refuse":
                         print(f"BIN: Truck {reply_msg.sender} refused the contract")
@@ -139,59 +149,104 @@ class BinAgent(Agent):
 
     class proposalSelection(State):
         async def run(self):
-            print(f"BIN: Selecting best truck for the job among {self.agent.truck_responses}")
-            best_truck = min(self.agent.truck_responses, key=self.agent.truck_responses.get) # gets the key with the minimum value
-            print("BIN: Selected truck: ", best_truck)
+            print(f"BIN: Selecting best trucks among {self.agent.truck_responses}")
+            truck_data = [(str(jid), t[0], t[1]) for jid, t in self.agent.truck_responses.items()]
 
-            # send accept proposal to best truck, and reject to others
-            for truck, response in self.agent.truck_responses.items():
-                #msg = Message(to=truck.jid)
+            selected_trucks = self.agent.select_trucks_min_time(truck_data, self.agent.bin_fullness_proposal)
+            print(f"BIN: Selected trucks: {selected_trucks}")
+
+            if not selected_trucks:
+                print("BIN: No truck group could collect anything, restarting...")
+                self.set_next_state(BIN_STATE_TWO)
+                return
+
+            remaining = self.agent.bin_fullness_proposal
+            assignment = {}
+
+            for jid in selected_trucks:
+                _, cap = self.agent.truck_responses[jid]
+                take = min(cap, remaining)
+                assignment[jid] = take
+                remaining -= take
+                if remaining <= 0:
+                    break
+            
+            for truck, (time, _) in self.agent.truck_responses.items():
                 msg = Message(to=str(truck))
-                if (truck == best_truck):
+                if str(truck) in selected_trucks:
+                    amount = assignment[truck]
                     print(f"BIN: Sending accept-proposal to truck {truck}")
                     msg.set_metadata("performative", "accept-proposal")
-                    await_time = float(response) + 0.2
+                    msg.body = f"{self.agent.id};{time};{amount}"
                 else:
                     print(f"BIN: Sending reject-proposal to truck {truck}")
                     msg.set_metadata("performative", "reject-proposal")
-                msg.body = f"{self.agent.id};{response}" # need to remind the truck of the proposal ?
+                    msg.body = f"{self.agent.id};{time}"
                 await self.send(msg)
-            
-            print(f"Waiting {await_time} seconds")
-            result_reply = await self.receive(timeout=await_time)
 
-            if (not result_reply):
-                print("BIN: Timeout waiting for truck results")
+            timeout_total = max(self.agent.truck_responses[truck][0] for truck in selected_trucks) + 0.2
+            collected_total = 0.0
+            responses_expected = len(selected_trucks)
+            responses_received = 0
+            responses_received_from = set()
+
+            start_time = asyncio.get_event_loop().time()
+
+            while responses_received < responses_expected:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining = timeout_total - elapsed
+
+                if remaining <= 0:
+                    print("BIN: Timeout expired while waiting for trucks.")
+                    break
+
+                result_reply = await self.receive(timeout=remaining)
+
+                if not result_reply:
+                    print("BIN: No response received during this wait cycle.")
+                    break
+
+                sender = str(result_reply.sender)
+                if sender in responses_received_from:
+                    continue
+
+                responses_received += 1
+                responses_received_from.add(sender)
+
+                if result_reply.metadata["performative"] == "inform-done":
+                    collected = float(result_reply.body)
+                    self.agent.bin_fullness -= collected
+                    self.agent.bin_fullness = max(0, self.agent.bin_fullness)
+                    collected_total += collected
+
+                elif result_reply.metadata["performative"] == "failure":
+                    print(f"BIN: Truck {result_reply.sender} failed")
+
+                if responses_received == responses_expected:
+                    break
+
+            if responses_received < responses_expected:
+                print("BIN: Not all trucks responded in time. Retrying...")
                 self.set_next_state(BIN_STATE_TWO)
                 return
             
-            # if bin successfully cleaned, reset trucks and bin fullness, and go back to state one
-            if result_reply.metadata["performative"] == "inform-done":
-                print(f"BIN: Received success result from truck {result_reply.sender} with content {result_reply.body}")
+            self.agent.waste_level.append(collected_total)
 
-                # Stop the timer if it is still running
+            # Stop the timer if the bin is no longer full
+            if self.agent.bin_fullness <= self.agent.max_capacity:
                 if self.agent.time_full_start is not None:
                     duration = self.agent.time - self.agent.time_full_start
                     self.agent.total_time_full += duration
                     self.agent.time_full_start = None
 
-                self.agent_truck_responses = {} # reset trucks
-                collected_waste = float(result_reply.body)
-                self.agent.waste_level.append(collected_waste)
-                self.agent.bin_fullness -= collected_waste
-                self.agent.bin_fullness = max(0, self.agent.bin_fullness)
+                if self.agent.in_overflow:
+                    self.agent.total_overflow_peaks += self.agent.peak_overflow_cycle
+                    self.agent.peak_overflow_cycle = 0
+                    self.agent.in_overflow = False
 
-                if self.agent.bin_fullness <= self.agent.max_capacity:
-                    self.agent.last_overflow = 0 # reset last overflow
+            self.agent.truck_responses = {} # reset trucks
+            self.set_next_state(BIN_STATE_ONE) # transitions again to state one
 
-                self.set_next_state(BIN_STATE_ONE) # transitions again to state one
-            
-            # if truck failed, ignore it in the next iteration, or go back to state two if all trucks failed
-            elif result_reply.metadata["performative"] == "failure":
-                print(f"BIN: Received failure result from truck {result_reply.sender}")
-                self.agent_truck_responses.pop(result_reply.sender) # ignore this truck in the next iteration
-                if (self.agent_truck_responses == {}):
-                    self.set_next_state(BIN_STATE_TWO) # if all trucks failed, go back to sending contract and waiting for responses
 
     async def setup(self):
         binFill = self.FillBinBehaviour(period=1) # every 1 seconds, fill the bin with garbage
@@ -217,6 +272,55 @@ class BinAgent(Agent):
         fsm.add_transition(source=BIN_STATE_THREE, dest=BIN_STATE_ONE)
         fsm.add_transition(source=BIN_STATE_THREE, dest=BIN_STATE_TWO)
         return fsm
+    
+
+    def select_trucks_min_time(self, truck_data, required_capacity):
+        factor = 10                              
+        req = int(required_capacity * factor)
+
+        ids   = [t[0] for t in truck_data]
+        times = [t[1] for t in truck_data]
+        caps  = [int(t[2] * factor) for t in truck_data]
+
+        n        = len(truck_data)
+        max_cap  = sum(caps)
+        INF_TIME = float("inf")
+
+        dp = [[INF_TIME]*(max_cap+1) for _ in range(n+1)]
+        dp[0][0] = 0
+
+        for i in range(1, n+1):
+            t   = times[i-1]
+            cap = caps[i-1]
+            for c in range(max_cap+1):
+                dp[i][c] = dp[i-1][c]
+                if c >= cap and dp[i-1][c-cap] != INF_TIME:
+                    cand = max(dp[i-1][c-cap], t)
+                    if cand < dp[i][c]:
+                        dp[i][c] = cand
+
+        chosen_cap, best_time = None, INF_TIME
+        for c in range(req, max_cap+1):
+            if dp[n][c] < best_time:
+                best_time, chosen_cap = dp[n][c], c
+
+        if chosen_cap is None:
+            for c in range(max_cap, -1, -1):
+                if dp[n][c] < best_time:
+                    best_time, chosen_cap = dp[n][c], c
+                    break
+            if chosen_cap is None:
+                return []
+
+        selected = []
+        c = chosen_cap
+        for i in range(n, 0, -1):
+            t   = times[i-1]
+            cap = caps[i-1]
+            if c >= cap and dp[i][c] == max(dp[i-1][c-cap], t):
+                selected.append(ids[i-1])
+                c -= cap
+        return selected[::-1]
 
 TRUCK_STATE_ONE = "RECEIVE_CFP"
 TRUCK_STATE_TWO = "PERFORM_ACTION"
