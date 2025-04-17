@@ -1,13 +1,18 @@
+import os
 import random
+from spade.template import Template
 import spade
 from spade.agent import Agent
-from spade.behaviour import FSMBehaviour, State, CyclicBehaviour
+from spade.behaviour import FSMBehaviour, State, CyclicBehaviour, PeriodicBehaviour
 from spade.message import Message
 import asyncio
+from dotenv import load_dotenv
 
-TRUCK_STATE_ONE = "RECEIVE_CFP"
-TRUCK_STATE_TWO = "SEND_PROPOSAL"
-TRUCK_STATE_THREE = "PERFORM_ACTION"
+load_dotenv()
+SPADE_PASS = os.getenv('SPADE_PASS')
+
+TRUCK_STATE_ONE = "SEND_PROPOSAL"
+TRUCK_STATE_TWO = "PERFORM_ACTION"
 
 # - Faz sentido ter um CFP a processar pedidos sequencialmente? Acho que não é possível satisfazer mais do que um pedido ao mesmo tempo, um camião ou vai a um sitio ou vai a outro, por isso paralelizar não importa, certo?
 
@@ -17,52 +22,54 @@ class TruckAgent(Agent):
         super().__init__(jid, password)
 
         # shared state between behaviours
-        self.currentProposal = None  # store currently processed proposal
+        self.proposals = []  # store proposals from separate bins
+
+    # cyclic check for CFP contracts
+    # NOTE: its cyclic so it should run every iteration, but it has to wait for timeout 3sec on receive, so its periodic in practice
+    class ReceiveCFPBehaviour(PeriodicBehaviour):
+        async def run(self):
+            print(f"TRUCK_{self.agent.jid}: waiting for CFP proposals...")
+            msg = await self.receive(timeout=3)  # timeout after 3 seconds
+            if msg:
+                if msg.metadata["performative"] == "cfp":
+                    print(f"TRUCK_{self.agent.jid}: cFP from {msg.sender}")
+                    self.agent.proposals.append(msg)  # store the proposal in a queue to be processed by other behaviour
+                else:
+                    print(f"TRUCK_{self.agent.jid}: non-CFP message from {msg.sender}")
+            else:
+                print(f"TRUCK_{self.agent.jid}: No messages received during this check")
 
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
-        class ReceiveContract(State):
-            async def run(self):
-                msg = await self.receive(timeout=3)  # timeout after 3 seconds
-                if msg:
-                    if msg.metadata["performative"] == "cfp":
-                        print(f"TRUCK: cFP from {msg.sender}")
-                        self.agent.currentProposal = msg  # store the proposal in a queue to be processed by other behaviour
-                        self.set_next_state(TRUCK_STATE_TWO)
-                    else:
-                        print(f"TRUCK: non-CFP message from {msg.sender}")
-                        await asyncio.sleep(1)  # wait for 1 seconds
-                        self.set_next_state(TRUCK_STATE_ONE) # repeat check for requets
-                else:
-                    print("TRUCK: No messages received during this check")
-                    await asyncio.sleep(1)  # wait for 1 seconds
-                    self.set_next_state(TRUCK_STATE_ONE) # repeat check for requets
-
         class ProcessContract(State):
             async def run(self):
-                proposal = self.agent.currentProposal
-                if self.agent.decide_accept_proposal(proposal):
-                    #reply = Message(to=proposal.sender.jid)
-                    reply = Message(to=str(proposal.sender))
-                    reply.set_metadata("performative", "propose")
-                    reply.body = str(random.randint(0, 100))  # Send a random value as proposal
-                    await self.send(reply)
-                    print(f"TRUCK: Truck sending proposal to {proposal.sender}")
-                    self.set_next_state(TRUCK_STATE_THREE) 
-                else:
-                    #reply = Message(to=proposal.sender.jid)
-                    reply = Message(to=str(proposal.sender))
-                    reply.set_metadata("performative", "refuse")
-                    await self.send(reply)
+                if self.agent.proposals:
+                    proposal = self.agent.proposals.pop(0)  # Get the first proposal
+                    
+                    if self.agent.decide_accept_proposal(proposal):
+                        reply = Message(to=str(proposal.sender))
+                        reply.set_metadata("performative", "propose")
+                        reply.body = str(random.randint(0, 100))  # Send a random value as proposal
+                        await self.send(reply)
+                        print(f"TRUCK_{self.agent.jid}: Truck sending proposal to {proposal.sender}")
+                        self.set_next_state(TRUCK_STATE_TWO) 
+                    else:
+                        reply = Message(to=str(proposal.sender))
+                        reply.set_metadata("performative", "refuse")
+                        await self.send(reply)
 
-                    print(f"TRUCK: Truck rejecting contract from {proposal.sender}")
-                    self.set_next_state(TRUCK_STATE_ONE) # process other requests
+                        print(f"TRUCK_{self.agent.jid}: Truck rejecting contract from {proposal.sender}")
+                        self.set_next_state(TRUCK_STATE_ONE) # process other requests
+                else:
+                    print(f"TRUCK_{self.agent.jid}: No proposals to process currently")
+                    await asyncio.sleep(3)  # wait for 3 second
+                    self.set_next_state(TRUCK_STATE_ONE) 
 
         # State 2: perform action
         class PerformAction(State):
             async def run(self):
                 print("Waiting for bin deicision on proposal...")
-                msg = await self.receive(timeout=10)  # wait for a message for 3 seconds
+                msg = await self.receive(timeout=10)  # wait for a message for 10 seconds > longer than the bin's timeout on other proposals !
 
                 if (not msg):
                     print("No proposal answer received during action")
@@ -101,29 +108,33 @@ class TruckAgent(Agent):
                 self.set_next_state(TRUCK_STATE_ONE)  # return to waiting for proposals
 
     async def setup(self):
+        cfp_template = Template()
+        cfp_template.set_metadata("performative", "cfp")
+        
+        receive_cfp_behaviour = self.ReceiveCFPBehaviour(period=1)  # Check for CFP every 5 seconds
+        self.add_behaviour(receive_cfp_behaviour, template=cfp_template) # force first behaviour to only read cfp messages, and ignore all others -> or else it would eat all messages that were supposed to go to the state machine behaviours!
+
         fsm = self.setupFSMBehaviour()
-        self.add_behaviour(fsm)
+        self.add_behaviour(fsm, template=~cfp_template)
 
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self, proposal):
-        # if (random.randint(0,4) == 0):
-        #     return False
+        if (random.randint(0,4) == 0):
+            return False
         return True
 
     def setupFSMBehaviour(self):
         fsm = self.TruckFSMBehaviour()
-        fsm.add_state(name=TRUCK_STATE_ONE, state=self.TruckFSMBehaviour.ReceiveContract(), initial=True)
-        fsm.add_state(name=TRUCK_STATE_TWO, state=self.TruckFSMBehaviour.ProcessContract())
-        fsm.add_state(name=TRUCK_STATE_THREE, state=self.TruckFSMBehaviour.PerformAction())
+        fsm.add_state(name=TRUCK_STATE_ONE, state=self.TruckFSMBehaviour.ProcessContract(), initial=True)
+        fsm.add_state(name=TRUCK_STATE_TWO, state=self.TruckFSMBehaviour.PerformAction())
 
         fsm.add_transition(source=TRUCK_STATE_ONE, dest=TRUCK_STATE_ONE)
         fsm.add_transition(source=TRUCK_STATE_ONE, dest=TRUCK_STATE_TWO)
-        fsm.add_transition(source=TRUCK_STATE_TWO, dest=TRUCK_STATE_THREE)
-        fsm.add_transition(source=TRUCK_STATE_THREE, dest=TRUCK_STATE_ONE)
+        fsm.add_transition(source=TRUCK_STATE_TWO, dest=TRUCK_STATE_ONE)
         return fsm
 
 async def main():
-    truck_agent = TruckAgent("agente2@localhost", input("Password: "))
+    truck_agent = TruckAgent("agente2@localhost", SPADE_PASS)
     await truck_agent.start(auto_register=True)
 
     await spade.wait_until_finished(truck_agent)
