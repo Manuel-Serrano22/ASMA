@@ -36,11 +36,11 @@ class BinAgent(Agent):
         self.max_capacity = max_capacity
         self.threshold_ratio = 0.8 # 80% of the bin max capacity
         self.known_trucks = known_trucks # list of known trucks
-
         self.time_full_start = None # moment it started to be full
         self.total_time_full = 0 # total time the bin has been full
-        self.total_overflow = 0 # total waste above capacity
-        self.last_overflow = 0 # last waste above capacity
+        self.in_overflow = False
+        self.peak_overflow_cycle   = 0.0
+        self.total_overflow_peaks  = 0.0
         self.waste_level = []
 
     # progressively fill bin with garbage
@@ -49,22 +49,30 @@ class BinAgent(Agent):
             self.agent.bin_fullness += 100
             print(f"BIN: Bin fullness: {self.agent.bin_fullness}")
 
-            # Check if it is above capacity.
-            if self.agent.bin_fullness > self.agent.max_capacity:
-                # Start counting time if not already counting
+            excess = self.agent.bin_fullness - self.agent.max_capacity
+
+            if excess > 0:   
                 if self.agent.time_full_start is None:
                     self.agent.time_full_start = self.agent.time
 
-                current_overflow = self.agent.bin_fullness - self.agent.max_capacity
-                diff = current_overflow - self.agent.last_overflow
-                self.agent.total_overflow += diff
-                self.agent.last_overflow = current_overflow
+                if not self.agent.in_overflow:
+                    self.agent.in_overflow = True
+                    self.agent.peak_overflow_cycle = excess
+
+                else:
+                    if excess > self.agent.peak_overflow_cycle:
+                        self.agent.peak_overflow_cycle = excess
+
             else:
-                # If it was counting and is no longer full, stop the timer
                 if self.agent.time_full_start is not None:  
                     duration = self.agent.time - self.agent.time_full_start
                     self.agent.total_time_full += duration
                     self.agent.time_full_start = None
+
+                if self.agent.in_overflow:
+                    self.agent.total_overflow_peaks += self.agent.peak_overflow_cycle
+                    self.agent.peak_overflow_cycle = 0
+                    self.agent.in_overflow = False
 
     class UpdateTimeBehaviour(PeriodicBehaviour):
         async def run(self):
@@ -230,14 +238,17 @@ class BinAgent(Agent):
             
             self.agent.waste_level.append(collected_total)
 
-            if self.agent.bin_fullness <= self.agent.max_capacity:
-                self.agent.last_overflow = 0  # reset last overflow
-
             # Stop the timer if the bin is no longer full
-            if self.agent.bin_fullness <= self.agent.max_capacity and self.agent.time_full_start is not None:
-                duration = self.agent.time - self.agent.time_full_start
-                self.agent.total_time_full += duration
-                self.agent.time_full_start = None
+            if self.agent.bin_fullness <= self.agent.max_capacity:
+                if self.agent.time_full_start is not None:
+                    duration = self.agent.time - self.agent.time_full_start
+                    self.agent.total_time_full += duration
+                    self.agent.time_full_start = None
+
+                if self.agent.in_overflow:
+                    self.agent.total_overflow_peaks += self.agent.peak_overflow_cycle
+                    self.agent.peak_overflow_cycle = 0
+                    self.agent.in_overflow = False
 
             self.agent.truck_responses = {} # reset trucks
             self.set_next_state(BIN_STATE_ONE) # transitions again to state one
@@ -355,9 +366,14 @@ async def main():
         fsmagent.total_time_full += duration
         fsmagent.time_full_start = None
 
+    if fsmagent.in_overflow:
+        fsmagent.total_overflow_peaks += fsmagent.peak_overflow_cycle
+        fsmagent.peak_overflow_cycle = 0
+        fsmagent.in_overflow = False
+
     print("\n--- BIN METRICS ---")
     print(f"Total time bin was full: {fsmagent.total_time_full:.2f} seconds")
-    print(f"Total overflow accumulated: {fsmagent.total_overflow:.2f} units")
+    print(f"Total overflow accumulated: {fsmagent.total_overflow_peaks:.2f} units")
 
     await spade.wait_until_finished(truck_agent)
     await spade.wait_until_finished(truck_agent2)
