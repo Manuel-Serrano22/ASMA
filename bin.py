@@ -17,13 +17,17 @@ TRUCKS_NUMBER = 3
 
 class BinAgent(Agent):
 
-    def __init__(self, jid, password, id, known_trucks, latitude, longitude):
+    def __init__(self, jid, password, id, known_trucks, latitude, longitude, fill_rate_time, fill_rate_quantity):
         super().__init__(jid, password)
         # shared state between behaviours
 
         self.id = id
         self.latitude = latitude
         self.longitude = longitude
+
+        self.fill_rate_time = fill_rate_time
+        self.fill_rate_quantity = fill_rate_quantity
+
         self.bin_fullness = 0
         self.bin_fullness_proposal = 0 # store the bin fullness when sending the proposal
         self.truck_responses = {}
@@ -51,7 +55,7 @@ class BinAgent(Agent):
     # progressively fill bin with garbage
     class FillBinBehaviour(PeriodicBehaviour):
         async def run(self):
-            self.agent.bin_fullness += 100
+            self.agent.bin_fullness += self.agent.fill_rate_quantity
             print(f"BIN: Bin fullness: {self.agent.bin_fullness}")
 
             excess = self.agent.bin_fullness - self.agent.max_capacity
@@ -82,16 +86,6 @@ class BinAgent(Agent):
     class UpdateTimeBehaviour(PeriodicBehaviour):
         async def run(self):
             self.agent.time += 1 # increment time every second
-
-    # class SendCapacityUpdateBehaviour(PeriodicBehaviour):
-    #     async def run(self):
-    #         for truck_jid in self.agent.known_trucks:
-    #             msg = Message(to=truck_jid)
-    #             msg.set_metadata("performative", "inform")
-    #             msg.set_metadata("type", "bin_status_update")
-    #             msg.body = f"{self.agent.jid};{self.agent.bin_fullness};{self.agent.max_capacity};{self.agent.latitude};{self.agent.longitude}"
-    #             await self.send(msg)
-    #             #print(f"BIN: Sent capacity update to {truck_jid} -> {msg.body}")
         
     class BinFSMBehaviour(FSMBehaviour):
         async def on_start(self):
@@ -260,9 +254,9 @@ class BinAgent(Agent):
 
 
     async def setup(self):
-        sendUpdate = self.SendCapacityUpdateBehaviour(period=5)  # every 5 seconds, send update to trucks
+        sendUpdate = self.SendCapacityUpdateBehaviour(period=5)  # every 5 seconds, send update to world
         self.add_behaviour(sendUpdate)
-        binFill = self.FillBinBehaviour(period=1) # every 1 seconds, fill the bin with garbage
+        binFill = self.FillBinBehaviour(period=self.fill_rate_time) # every 1 seconds, fill the bin with garbage
         self.add_behaviour(binFill)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)

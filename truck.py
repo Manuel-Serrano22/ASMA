@@ -1,7 +1,7 @@
 import random
 import spade
 from spade.agent import Agent
-from spade.behaviour import FSMBehaviour, State, CyclicBehaviour
+from spade.behaviour import FSMBehaviour, State, CyclicBehaviour, PeriodicBehaviour
 from spade.message import Message
 import asyncio
 from utils import haversine, get_distance_truck_to_deposit, get_latitude_from_deposit, get_longitude_from_deposit
@@ -28,6 +28,16 @@ class TruckAgent(Agent):
         self.total_waste_collected = 0
         self.distance_traveled = 0
 
+    class SendUpdateBehaviour(PeriodicBehaviour):
+
+        async def run(self):
+            msg = Message(to="world@localhost")
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("type", "truck_status_update")
+            msg.body = f"{self.agent.jid};{self.agent.distance_traveled};{self.agent.total_waste_collected}"
+            await self.send(msg)
+            print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
+
     class TruckFSMBehaviour(FSMBehaviour):
         # State 1: receive CFP proposal from a bin
         class ReceiveContract(State):
@@ -35,7 +45,7 @@ class TruckAgent(Agent):
                 msg = await self.receive(timeout=3)  # timeout after 3 seconds
                 if msg:
                     if msg.metadata["performative"] == "cfp":
-                        print(f"TRUCK: cFP from {msg.sender} with body {msg.body}")
+                        print(f"TRUCK: CFP from {msg.sender} with body {msg.body}")
                         bin_id, bin_capacity, bin_latitute, bin_longitude = msg.body.strip().split(";")
                         self.agent.bins_stats[bin_id] = []
                         self.agent.bins_stats[bin_id].append(float(bin_capacity))
@@ -139,6 +149,8 @@ class TruckAgent(Agent):
                 self.set_next_state(TRUCK_STATE_ONE)  # return to waiting for proposals
 
     async def setup(self):
+        sendUpdate = self.SendUpdateBehaviour(period=5)  # every 5 seconds, send update to world
+        self.add_behaviour(sendUpdate)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
 
@@ -170,14 +182,3 @@ class TruckAgent(Agent):
         fsm.add_transition(source=TRUCK_STATE_TWO, dest=TRUCK_STATE_THREE)
         fsm.add_transition(source=TRUCK_STATE_THREE, dest=TRUCK_STATE_ONE)
         return fsm
-
-async def main():
-    truck_agent = TruckAgent("agente2@localhost", input("Password: "), 41.1693, -8.6026, 2000)
-    await truck_agent.start(auto_register=True)
-
-    await spade.wait_until_finished(truck_agent)
-    await truck_agent.stop()
-    print("Agent finished")
-
-if __name__ == "__main__":
-    spade.run(main())

@@ -11,6 +11,21 @@ import world as world
 load_dotenv()
 SPADE_PASS = os.getenv('SPADE_PASS')
 
+def display_stats(bin_stats, truck_stats, total_waste_collected):
+    print("🚮 Bin Stats:")
+    for bin_id, stats in bin_stats.items():
+        print(f"  Bin {bin_id}:")
+        print(f"    - Total Time Full:       {stats[0]}")
+        print(f"    - Total Waste Overflow:  {stats[1]}")
+        print(f"    - Average Waste:         {stats[2]:.2f}")
+
+    print("\n🚚 Truck Stats:")
+    for truck_id, stats in truck_stats.items():
+        print(f"  Truck {truck_id}:")
+        print(f"    - Total Distance Traveled: {stats:.2f}")
+
+    print("\n Total Waste Collected ----> " + str(total_waste_collected))
+
 async def main():
     # read information from dataset
     #df = pd.read_csv("dataset/dataset.csv") -> dataset completo
@@ -18,6 +33,13 @@ async def main():
 
     # base port
     port = 10000
+
+    # Register and start world agent to collect statistics
+    world_agent = world.WorldAgent("world@localhost", SPADE_PASS)
+    await world_agent.start(auto_register=True)
+    port_str = str(port)
+    world_agent.web.start(hostname="127.0.0.1", port=port_str)
+    port += 1
 
     # Provided by the user via terminal -> Time interval(bin filling rate)
     # Bin filling rate (quantity), Number of trucks
@@ -27,7 +49,7 @@ async def main():
 
     # trash per second
     bin_filling = bin_filling_rate_quantity / bin_filling_rate_time
-    print("Bin filling rate =" + str(bin_filling) + "trash/second")
+    print(f"Bin filling rate = {str(bin_filling_rate_quantity)} trash every {str(bin_filling_rate_time)} second(s)")
     # contact list for bin -> it receives the address
     contact_list = []
     deposito_row = df.iloc[-1]
@@ -52,34 +74,25 @@ async def main():
         iD = row['ID']
         latitude = row['Latitude']
         longitude = row['Longitude']
-        fsmagent = bin.BinAgent(jid, SPADE_PASS, iD, contact_list, latitude, longitude)
+        fsmagent = bin.BinAgent(jid, SPADE_PASS, iD, contact_list, latitude, longitude, bin_filling_rate_time, bin_filling_rate_quantity)
         await fsmagent.start(auto_register=True)
         port_str = str(port)
         fsmagent.web.start(hostname="127.0.0.1", port=port_str)
         await asyncio.sleep(3)
         port += 1
     
-    # Register and start world agent to collect statistics
-    fsmagent = world.WorldAgent("world@localhost", SPADE_PASS)
-    await fsmagent.start(auto_register=True)
-    port_str = str(port)
-    fsmagent.web.start(hostname="127.0.0.1", port=port_str)
-
     sim_duration = 30 # seconds
     await asyncio.sleep(sim_duration)
 
-    # # If the simulation ends while the bin is still full, the time_full_start is still running 
-    if fsmagent.time_full_start is not None:
-        duration = fsmagent.time - fsmagent.time_full_start
-        fsmagent.total_time_full += duration
-        fsmagent.time_full_start = None
+    display_stats(world_agent.bin_stats, world_agent.truck_stats, world_agent.total_waste_collected)
 
-    print("\n--- BIN METRICS ---")
-    print(f"Total time bin was full: {fsmagent.total_time_full:.2f} seconds")
-    print(f"Total overflow accumulated: {fsmagent.total_overflow:.2f} units")
+    world_agent.stop_requested = True
+    await asyncio.sleep(1)
+
 
     await spade.wait_until_finished(truck_agent)
     await spade.wait_until_finished(fsmagent)
+
     await fsmagent.stop()
     print("BIN: Agent finished")
 
