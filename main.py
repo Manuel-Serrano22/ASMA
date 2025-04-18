@@ -28,11 +28,13 @@ def display_stats(bin_stats, truck_stats, total_waste_collected):
 
 async def main():
     # read information from dataset
-    #df = pd.read_csv("dataset/dataset.csv") -> dataset completo
-    df = pd.read_csv("dataset/1bin.csv")
+    df = pd.read_csv("dataset/dataset.csv") #  -> dataset completo
+    #df = pd.read_csv("dataset/1bin.csv")
 
     # base port
     port = 10000
+
+    agent_list = []
 
     # Register and start world agent to collect statistics
     world_agent = world.WorldAgent("world@localhost", SPADE_PASS)
@@ -40,6 +42,7 @@ async def main():
     port_str = str(port)
     world_agent.web.start(hostname="127.0.0.1", port=port_str)
     port += 1
+    agent_list.append(world_agent)
 
     # Provided by the user via terminal -> Time interval(bin filling rate)
     # Bin filling rate (quantity), Number of trucks
@@ -63,6 +66,7 @@ async def main():
         # jid, password, latitude, longitude, capacity
         truck_agent = truck.TruckAgent(truck_jid, SPADE_PASS, deposito_lat, deposito_long)
         await truck_agent.start()
+        agent_list.append(truck_agent)
         port_str = str(port)
         truck_agent.web.start(hostname="127.0.0.1", port=port_str)
         await asyncio.sleep(3)
@@ -76,28 +80,31 @@ async def main():
         longitude = row['Longitude']
         fsmagent = bin.BinAgent(jid, SPADE_PASS, iD, contact_list, latitude, longitude, bin_filling_rate_time, bin_filling_rate_quantity)
         await fsmagent.start(auto_register=True)
+        agent_list.append(fsmagent)
         port_str = str(port)
         fsmagent.web.start(hostname="127.0.0.1", port=port_str)
         await asyncio.sleep(3)
         port += 1
     
-    sim_duration = 30 # seconds
+    sim_duration = 10 # seconds
     await asyncio.sleep(sim_duration)
+
+    # Gracefully stop all agents
+    for agent in agent_list:
+        for behaviour in agent.behaviours:
+            behaviour.kill()
+        await agent.stop()
+        print(f"{agent.name} has been stopped.")
+
+
+    await asyncio.sleep(5)
 
     display_stats(world_agent.bin_stats, world_agent.truck_stats, world_agent.total_waste_collected)
 
     world_agent.stop_requested = True
     await asyncio.sleep(1)
 
-
-    await spade.wait_until_finished(truck_agent)
-    await spade.wait_until_finished(fsmagent)
-
-    await fsmagent.stop()
-    print("BIN: Agent finished")
-
-    await truck_agent.stop()
-    print("TRUCK: Agent finished")
-
+    
+        
 if __name__ == "__main__":
     spade.run(main())
