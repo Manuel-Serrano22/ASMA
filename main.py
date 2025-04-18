@@ -7,12 +7,14 @@ import truck as truck
 import bin as bin
 import pandas as pd
 from utils import *
+import world as world
 load_dotenv()
 SPADE_PASS = os.getenv('SPADE_PASS')
 
 async def main():
     # read information from dataset
-    df = pd.read_csv("dataset/dataset.csv")
+    #df = pd.read_csv("dataset/dataset.csv") -> dataset completo
+    df = pd.read_csv("dataset/1bin.csv")
 
     # base port
     port = 10000
@@ -57,7 +59,12 @@ async def main():
         await asyncio.sleep(3)
         port += 1
     
-    
+    # Register and start world agent to collect statistics
+    fsmagent = world.WorldAgent("world@localhost", SPADE_PASS)
+    await fsmagent.start(auto_register=True)
+    port_str = str(port)
+    fsmagent.web.start(hostname="127.0.0.1", port=port_str)
+
     sim_duration = 30 # seconds
     await asyncio.sleep(sim_duration)
 
