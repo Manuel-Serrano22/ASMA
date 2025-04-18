@@ -355,11 +355,11 @@ async def main():
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10004")
 
-    fsmagent_2 = BinAgent("agente2@localhost", SPADE_PASS, "B", BIN_MAX_CAPACITY, ["agente4@localhost"], 15.0, -3.0)
+    fsmagent_2 = BinAgent("agente2@localhost", SPADE_PASS, "B", BIN_MAX_CAPACITY, ["agente4@localhost"], 42.0, -8.0)
     await fsmagent_2.start(auto_register=True)
     fsmagent_2.web.start(hostname="127.0.0.1", port="10005")
 
-    fsmagent_3 = BinAgent("agente3@localhost", SPADE_PASS, "C", BIN_MAX_CAPACITY, ["agente4@localhost"], -40.0, 8.0)
+    fsmagent_3 = BinAgent("agente3@localhost", SPADE_PASS, "C", BIN_MAX_CAPACITY, ["agente4@localhost"], 43.0, -8.0)
     await fsmagent_3.start(auto_register=True)
     fsmagent_3.web.start(hostname="127.0.0.1", port="10006")
 
