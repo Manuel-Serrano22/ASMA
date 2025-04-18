@@ -3,7 +3,7 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, PeriodicBehaviour, OneShotBehaviour
 import random
 from spade.message import Message
-
+import asyncio
 BIN_STATE_ONE = "CHECK_BIN"
 BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
