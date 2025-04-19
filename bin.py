@@ -16,9 +16,12 @@ BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
 
 BIN_MAX_CAPACITY = 100 # max bin capacity
-BIN_THRESHOLD_RATIO = 0.5 # threshold for bin to send cfp contracts
+BIN_THRESHOLD_RATIO = 0.1 # threshold for bin to send cfp contracts
 BIN_FILL_RATE = 30
-BIN_FILL_SPEED = 1 # every x seconds, fill the bin with garbage
+BIN_FILL_SPEED = 2 # every x seconds, fill the bin with garbage
+
+WAIT_RESPONSES_TIMEOUT = 1.5 # seconds
+WAIT_TASK_RESULT_TIMEOUT = 1 # seconds
 
 class BinAgent(Agent):
 
@@ -110,26 +113,29 @@ class BinAgent(Agent):
     class sendContractWaitResponses(State):
         async def run(self):
             print("Entering state 2 bin")
+
             # send contract to all trucks
             self.agent.bin_fullness_proposal = self.agent.bin_fullness
+            
             for truck in self.agent.known_trucks:
                 msg = Message(to=truck)
                 msg.set_metadata("performative", "cfp")
                 msg.body = f"{self.agent.id};{self.agent.bin_fullness_proposal};{self.agent.latitude};{self.agent.longitude}"
                 await self.send(msg)
-                print(f"BIN_{self.agent.id}: Sent contract cfp to truck", truck)
+                print(f"BIN_{self.agent.id}: Sent contract {msg.body} cfp to truck", truck)
 
             #wait for responses
             self.truck_answers = 0
             self.agent.truck_responses = {}
             while (self.truck_answers < len(self.agent.known_trucks)):
                 print(f"BIN_{self.agent.id}: Waiting for truck responses... {self.truck_answers}/{len(self.agent.known_trucks)}")
-                reply_msg = await self.receive(timeout=3) # wait for answers
+                reply_msg = await self.receive(timeout=WAIT_RESPONSES_TIMEOUT) # wait for answers
                 if reply_msg:
                     self.truck_answers += 1
                     if reply_msg.metadata["performative"] == "propose":
                         truck_time, truck_capacity = reply_msg.body.strip().split(";")
                         self.agent.truck_responses[reply_msg.sender] = (float(truck_time), float(truck_capacity))
+                         # trucks send expected end time date, not duration, for equal frame of comparison during selection
                         print(f"BIN_{self.agent.id}: Truck {reply_msg.sender} proposed: Time -> {truck_time}, Capacity -> {truck_capacity}")
 
                     elif reply_msg.metadata["performative"] == "refuse":
@@ -187,7 +193,7 @@ class BinAgent(Agent):
                     msg.body = f"{self.agent.id};{time}"
                 await self.send(msg)
 
-            timeout_total = max(self.agent.truck_responses[truck][0] for truck in selected_trucks) + 0.2
+            timeout_total = max(self.agent.truck_responses[truck][0] for truck in selected_trucks) + WAIT_TASK_RESULT_TIMEOUT
             collected_total = 0.0
             responses_expected = len(selected_trucks)
             responses_received = 0
@@ -279,11 +285,15 @@ class BinAgent(Agent):
     
 
     def select_trucks_min_time(self, truck_data, required_capacity):
+        curr_time = asyncio.get_event_loop().time()
+        print(f"Bin_{self.id}: Selecting trucks with min time for {required_capacity} capacity")
+
         factor = 10                              
         req = int(required_capacity * factor)
 
         ids   = [t[0] for t in truck_data]
-        times = [t[1] for t in truck_data]
+        times = [t[1] - curr_time for t in truck_data]
+
         caps  = [int(t[2] * factor) for t in truck_data]
 
         n        = len(truck_data)
@@ -359,9 +369,9 @@ async def main():
     await fsmagent_2.start(auto_register=True)
     fsmagent_2.web.start(hostname="127.0.0.1", port="10005")
 
-    fsmagent_3 = BinAgent("agente3@localhost", SPADE_PASS, "C", BIN_MAX_CAPACITY, ["agente4@localhost"], 43.0, -8.0)
-    await fsmagent_3.start(auto_register=True)
-    fsmagent_3.web.start(hostname="127.0.0.1", port="10006")
+    # fsmagent_3 = BinAgent("agente3@localhost", SPADE_PASS, "C", BIN_MAX_CAPACITY, ["agente4@localhost"], 43.0, -8.0)
+    # await fsmagent_3.start(auto_register=True)
+    # fsmagent_3.web.start(hostname="127.0.0.1", port="10006")
 
     sim_duration = 30 # seconds
     await asyncio.sleep(sim_duration)
@@ -386,11 +396,11 @@ async def main():
     # await spade.wait_until_finished(truck_agent3)
 
     await spade.wait_until_finished(fsmagent)
-    await spade.wait_until_finished(fsmagent_2)
+    # await spade.wait_until_finished(fsmagent_2)
     # await spade.wait_until_finished(fsmagent_3)
 
     await fsmagent.stop()
-    await fsmagent_2.stop()
+    # await fsmagent_2.stop()
     # await fsmagent_3.stop()
 
     print(f"BIN: Bins finished")
