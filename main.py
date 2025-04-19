@@ -1,3 +1,5 @@
+import datetime
+import sys
 import spade
 from spade.agent import Agent
 import asyncio
@@ -27,6 +29,20 @@ def display_stats(bin_stats, truck_stats, total_waste_collected):
     print("\n Total Waste Collected ----> " + str(total_waste_collected))
 
 async def main():
+
+    if SPADE_PASS is None:
+        raise ValueError("Missing SPADE_PASS in environment. Check .env file or environment variables.")
+    
+    # Provided by the user via terminal: num_trucks, bin_filling_rate_time, bin_filling_rate_quantity
+    if len(sys.argv) == 4:
+        num_trucks = int(sys.argv[1])
+        bin_filling_rate_time = int(sys.argv[2])
+        bin_filling_rate_quantity = int(sys.argv[3])
+    else:
+        num_trucks = int(input("Enter the number of trucks: "))
+        bin_filling_rate_time = int(input("Enter bin filling rate time interval: "))
+        bin_filling_rate_quantity = int(input("Enter bin filling rate quantity: "))
+
     # read information from dataset
     df = pd.read_csv("dataset/dataset.csv") #  -> dataset completo
     #df = pd.read_csv("dataset/1bin.csv")
@@ -42,13 +58,6 @@ async def main():
     port_str = str(port)
     world_agent.web.start(hostname="127.0.0.1", port=port_str)
     port += 1
-    agent_list.append(world_agent)
-
-    # Provided by the user via terminal -> Time interval(bin filling rate)
-    # Bin filling rate (quantity), Number of trucks
-    num_trucks = int(input("Enter the number of trucks: "))
-    bin_filling_rate_time = int(input("Enter bin filling rate time interval: "))
-    bin_filling_rate_quantity = int(input("Enter bin filling rate quantity: "))
 
     # trash per second
     bin_filling = bin_filling_rate_quantity / bin_filling_rate_time
@@ -65,11 +74,10 @@ async def main():
         print("Creating truck agent with JID: " + truck_jid)
         # jid, password, latitude, longitude, capacity
         truck_agent = truck.TruckAgent(truck_jid, SPADE_PASS, deposito_lat, deposito_long)
-        await truck_agent.start()
+        await truck_agent.start(auto_register=True)
         agent_list.append(truck_agent)
         port_str = str(port)
         truck_agent.web.start(hostname="127.0.0.1", port=port_str)
-        await asyncio.sleep(3)
         port += 1
 
     for _, row in df[:-1].iterrows():
@@ -83,10 +91,9 @@ async def main():
         agent_list.append(fsmagent)
         port_str = str(port)
         fsmagent.web.start(hostname="127.0.0.1", port=port_str)
-        await asyncio.sleep(3)
         port += 1
     
-    sim_duration = 10 # seconds
+    sim_duration = 30 # seconds
     await asyncio.sleep(sim_duration)
 
     # Gracefully stop all agents
@@ -97,10 +104,8 @@ async def main():
         print(f"{agent.name} has been stopped.")
 
 
-    await asyncio.sleep(5)
-
     display_stats(world_agent.bin_stats, world_agent.truck_stats, world_agent.total_waste_collected)
-
+    
     world_agent.stop_requested = True
     await asyncio.sleep(1)
 
