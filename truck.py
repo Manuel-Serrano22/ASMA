@@ -172,7 +172,7 @@ class TruckAgent(Agent):
                     "proposal_id": self.proposal_id, # to track proposal
                     "bin_id": bin_id,
                     "bin_jid": str(self.proposal.sender), # to respond with success/failure of task to sender bin
-                    "state": "pending", # to track state of the task
+                    "state": "pending", # to track state of the task, only "confirmed" tasks are actually performed
                 })
 
                 self.agent.schedule.append(schedule_entry) # add to schedule
@@ -224,21 +224,23 @@ class TruckAgent(Agent):
                     bin_id, _, waste = msg.body.strip().split(";")
                     waste = float(waste) # waste to be collected from bin
 
-                    async with self.agent._lock: # guarantee no conflict when accessing shared entries
-                        for i, entry in enumerate(self.agent.schedule):
-                            if entry["proposal_id"] == self.proposal_id:
-                                self.agent.schedule[i]["state"] = "confirmed" # update state of the task to confirmed
-                                self.agent.schedule[i]["bin_id"] = bin_id # update bin id in schedule
-                                
-                                #check if bin is actually expecting less waste cleaned than proposed
-                                waste_diff = self.agent.schedule[i]["waste"] - waste
-                                if (waste_diff > 0):
-                                    self.agent.schedule[i]["waste"] = waste
-                                    print(f"TRUCK_{self.agent.id}: Proposal {self.proposal_id} accepted by {msg.sender}, but with less waste to collect: ([{waste}] vs {self.agent.schedule[i]['waste']})")
-                                    await self.update_queue_task_waste(entry["proposal_id"], waste_diff) # update subsequent tasks in queue to have more available space for the new task
-                                break
+                    # async with self.agent._lock: # guarantee no conflict when accessing shared schedule
+                    for i, entry in enumerate(self.agent.schedule):
+                        if entry["proposal_id"] == self.proposal_id:
 
-                        print(f"TRUCK_{self.agent.id}: Proposal {self.proposal_id} accepted by {msg.sender}")
+                            #check if bin is actually expecting less waste cleaned than proposed
+                            waste_diff = self.agent.schedule[i]["waste"] - waste
+                            if (waste_diff > 1.0):
+                                print(f"TRUCK_{self.agent.id}: Proposal {self.proposal_id} accepted by {msg.sender}, but with less waste to collect: ([{waste}] vs {self.agent.schedule[i]['waste']})")
+                                self.agent.schedule[i]["waste"] = waste
+                                await self.agent.update_queue_task_waste(self.proposal_id, waste_diff, start_index=i) # update subsequent tasks in queue to have more available space for the new task
+                            
+                            # update state of the task to confirmed, and performable by PerformQueueBehaviour
+                            self.agent.schedule[i]["state"] = "confirmed" 
+                            
+                            break
+
+                    print(f"TRUCK_{self.agent.id}: Proposal {self.proposal_id} accepted by {msg.sender}")
                         
                 else:
                     print(f"TRUCK_{self.agent.id}: Unexpected message for proposal {self.proposal_id}: {msg.metadata['performative']}")
@@ -292,7 +294,6 @@ class TruckAgent(Agent):
         
         return final_time, used_capacity, schedule_entry # return time to bin, available space for task, and schedule entry with all the info needed to track the task
     
-    #TODO
     async def update_queue_task_cancel(self, proposal_id):
         # async with self._lock:
 
@@ -314,7 +315,7 @@ class TruckAgent(Agent):
             self.schedule.pop(cancelled_index)
             print(f"TRUCK_{self.id}: Cancelled task for proposal {proposal_id}, removed from schedule")
 
-            # update all subsequent tasks in the queue to be performed earlier, with more available space, since this task was cancelled
+            #  since this task was cancelled, update all subsequent tasks in the queue values: time and waste, since this task was cancelled
             if not self.schedule or cancelled_index >= len(self.schedule):
                 print(f"TRUCK_{self.id}: No tasks to update after cancellation of {proposal_id}")
                 return
@@ -346,107 +347,107 @@ class TruckAgent(Agent):
                 self.schedule[i]["start_time"] -= time_saved
                 self.schedule[i]["end_time"] -= time_saved
 
-            # Adjust end_occupied_capacity for subsequent tasks
-            waste_cancelled = cancelled_task["waste"]
-            i = cancelled_index
-            while i < len(self.schedule):
-                task = self.schedule[i]
-                # Get previous capacity (from previous task or current waste if first task)
-                prev_occupied_capacity = self.schedule[i - 1]["end_occupied_capacity"]
-
-                # if task doesnt' require landfill, reduce occupied capacity
-                if not task["deposit"]:
-                    task["end_occupied_capacity"] = max(0, task["end_occupied_capacity"] - waste_cancelled)
-                    print(f"TRUCK_{self.id}: Task {task['proposal_id']} updated: end_occupied_capacity={task['end_occupied_capacity']} (no landfill required)")
-                    i += 1
-                else:
-                    print("Go to landfill anyway")
-                    break
-                    # Task originally required landfill, check if it can be done before landfill
-                    if self.capacity - prev_occupied_capacity >= task["waste"]:
-                        # Calculat two scenarios:
-                        # Option 1: From previous bin (A), go to bin (B) first, then landfill, then next bin (C)
-                        # go bin(A) -> bin(B)
-                        time_to_bin = haversine(prev_lat, prev_long, task["end_latitude"], task["end_longitude"]) / TRUCK_SPEED
-                        # go bin(B) -> landfill
-                        dist_to_landfill = get_distance_truck_to_deposit(task["end_latitude"], task["end_longitude"])
-                        time_to_landfill_after_bin = dist_to_landfill / TRUCK_SPEED
-                        time_option1 = time_to_bin + time_to_landfill_after_bin
-                        # landfill -> bin (C) if C exists
-                        if i + 1 < len(self.schedule):
-                            next_task = self.schedule[i + 1]
-                            _, _, time_to_next = self.go_to_deposit(next_task["end_latitude"], next_task["end_longitude"])
-                            time_option1 += time_to_next
-                        # if bin (C) does not exist, no need to account for next bin
-                        else:
-                            time_to_next = 0
-
-                        # Option 2: From previous bin (A), go to landfill first, then bin (B), then next bin (C)
-                        # bin(A) -> landfill
-                        _, _, time_to_landfill = self.go_to_deposit(prev_lat, prev_long)
-                       
-                       # landfill -> bin(B)
-                        _, _, time_from_landfill_to_bin = self.go_to_deposit(task["end_latitude"], task["end_longitude"])
-                        
-                        time_option2 = time_to_landfill + time_from_landfill_to_bin
-
-                        # bin (B) -> bin (C), if C exists
-                        if i + 1 < len(self.schedule):
-                            next_task = self.schedule[i + 1]
-                            dist_to_next = haversine(task["end_latitude"], task["end_longitude"], next_task["end_latitude"], next_task["end_longitude"])
-                            time_to_next_option2 = dist_to_next / TRUCK_SPEED
-                            time_option2 += time_to_next_option2
-
-                        # if bin (C) does not exist, no need to account for next bin
-                        else:
-                            time_to_next_option2 = 0
-
-                        # Choose the optimal option
-                        if time_option1 <= time_option2:
-                            # Perform task before landfill
-                            task["deposit"] = False
-                            task["end_occupied_capacity"] = prev_occupied_capacity + task["waste"]
-                            task["start_time"] = prev_time
-                            task["end_time"] = prev_time + time_to_bin
-                            task["last_bin_to_new_bin_distance"] = haversine(prev_lat, prev_long, task["end_latitude"], task["end_longitude"])
-                            task["last_bin_to_new_bin_time"] = time_to_bin
-                            print(f"TRUCK_{self.id}: Task {task['proposal_id']} updated: end_occupied_capacity={task['end_occupied_capacity']}, deposit=False, end_time={task['end_time']} (performed before landfill, time_option1={time_option1:.2f} vs time_option2={time_option2:.2f})")
-
-                            # Adjust next task's timing for landfill trip if it exists
-                            if i + 1 < len(self.schedule):
-                                next_task = self.schedule[i + 1]
-                                _,_, time_to_landfill = self.go_to_deposit(task["end_latitude"], task["end_longitude"])
-                                next_task["start_time"] = task["end_time"]
-                                next_task["end_time"] = task["end_time"] + next_task["last_bin_to_new_bin_time"]
-                                next_task["deposit"] = True
-                                print(f"TRUCK_{self.id}: Next task {next_task['proposal_id']} updated: start_time={next_task['start_time']}, end_time={next_task['end_time']}, deposit=True (landfill after task {task['proposal_id']})")
-                            prev_time = task["end_time"]
-                            prev_lat = task["end_latitude"]
-                            prev_long = task["end_longitude"]
-                            i += 1
-                        else:
-                            # Keep landfill trip, stop adjusting
-                            print(f"TRUCK_{self.id}: Task {task['proposal_id']} still requires landfill (time_option1={time_option1:.2f} vs time_option2={time_option2:.2f}), no further waste adjustments")
-                            break
-                    else:
-                        # Cannot perform task before landfill, stop adjusting
-                        print(f"TRUCK_{self.id}: Task {task['proposal_id']} still requires landfill due to insufficient capacity, no further waste adjustments")
-                        break
+            # Adjust occupied capacity for subsequent tasks (starting from next task), consdering the cancelled task's waste, and potential saved landfill trips
+            await self.update_queue_task_waste(self.schedule[cancelled_index]["proposal_id"], cancelled_task["waste"], start_index=cancelled_index) # update subsequent tasks in queue to have more available space for the new task
 
             print(f"TRUCK_{self.id}: Updated schedule after cancelling {proposal_id}: {len(self.schedule)} tasks remaining")
 
-    #TODO
-    async def update_queue_task_waste(self, proposal_id, waste_diff):
-        pass
-        # async with self._lock:
-        #     # update all subsequent tasks in the queue to have more available space for the new task
-        #     for i, entry in enumerate(self.schedule):
-        #         if entry["proposal_id"] == proposal_id:
-        #             self.schedule[i]["waste"] = entry["waste"] + waste_diff
-        #             self.schedule[i]["end_occupied_capacity"] = self.capacity - self.schedule[i]["waste"]
-        #             break
-        #     print(f"TRUCK_{self.id}: Updated schedule for proposal {proposal_id}, removed from schedule")
-        #     # update all subsequent tasks in the queue to have more available space for the new task
+    # receives:
+    # - proposal_id: id of the task from which to start the update
+    # - waste_diff: amount of waste reduced from what was previously proposed
+    # - start_index: index of the task from which to start the update (if not provided, will search for it)
+    async def update_queue_task_waste(self, proposal_id, waste_diff, start_index=-1):
+        
+        if (start_index == -1):
+            for i, entry in enumerate(self.schedule):
+                if entry["proposal_id"] == proposal_id:
+                    start_index = i
+                    break
+        
+        i = start_index
+
+        while i < len(self.schedule):
+            task = self.schedule[i]
+            # Get previous capacity (from previous task or current waste if last task is first task)
+            prev_occupied_capacity = self.schedule[i - 1]["end_occupied_capacity"] # previous task's occupied capacity
+            curr_occupied_capacity_before_update = task["end_occupied_capacity"] # current task's occupied capacity before doing update
+
+            # if task doesnt' require landfill, reduce occupied capacity
+            if not task["deposit"]:
+                task["end_occupied_capacity"] = max(0, task["end_occupied_capacity"] - waste_diff)
+                print(f"TRUCK_{self.id}: Task {task['proposal_id']} updated: end_occupied_capacity={task['end_occupied_capacity']} (no landfill required)")
+                i += 1
+            else:
+                # Task originally required landfill, check if it can be done before landfill
+                if self.capacity - prev_occupied_capacity >= task["waste"]:
+                    # Calculat two scenarios:
+                    # Option 1: From previous bin (A), go to bin (B) first, then landfill, then next bin (C)
+                    # go bin(A) -> bin(B)
+                    time_to_bin = haversine(prev_lat, prev_long, task["end_latitude"], task["end_longitude"]) / TRUCK_SPEED
+                    # go bin(B) -> landfill
+                    dist_to_landfill = get_distance_truck_to_deposit(task["end_latitude"], task["end_longitude"])
+                    time_to_landfill_after_bin = dist_to_landfill / TRUCK_SPEED
+                    time_option1 = time_to_bin + time_to_landfill_after_bin
+                    # landfill -> bin (C) if C exists
+                    if i + 1 < len(self.schedule):
+                        next_task = self.schedule[i + 1]
+                        _, _, time_to_next = self.go_to_deposit(next_task["end_latitude"], next_task["end_longitude"])
+                        time_option1 += time_to_next
+                    # if bin (C) does not exist, no need to account for next bin
+                    else:
+                        time_to_next = 0
+
+                    # Option 2: From previous bin (A), go to landfill first, then bin (B), then next bin (C)
+                    # bin(A) -> landfill
+                    _, _, time_to_landfill = self.go_to_deposit(prev_lat, prev_long)
+                    
+                    # landfill -> bin(B)
+                    _, _, time_from_landfill_to_bin = self.go_to_deposit(task["end_latitude"], task["end_longitude"])
+                    
+                    time_option2 = time_to_landfill + time_from_landfill_to_bin
+
+                    # bin (B) -> bin (C), if C exists
+                    if i + 1 < len(self.schedule):
+                        next_task = self.schedule[i + 1]
+                        dist_to_next = haversine(task["end_latitude"], task["end_longitude"], next_task["end_latitude"], next_task["end_longitude"])
+                        time_to_next_option2 = dist_to_next / TRUCK_SPEED
+                        time_option2 += time_to_next_option2
+
+                    # if bin (C) does not exist, no need to account for next bin
+                    else:
+                        time_to_next_option2 = 0
+
+                    # Choose the optimal option
+                    if time_option1 <= time_option2:
+                        # Perform task before landfill
+                        task["deposit"] = False
+                        task["end_occupied_capacity"] = prev_occupied_capacity + task["waste"]
+                        task["start_time"] = prev_time
+                        task["end_time"] = prev_time + time_to_bin
+                        task["last_bin_to_new_bin_distance"] = haversine(prev_lat, prev_long, task["end_latitude"], task["end_longitude"])
+                        task["last_bin_to_new_bin_time"] = time_to_bin
+                        print(f"TRUCK_{self.id}: Task {task['proposal_id']} updated: end_occupied_capacity=[{task['end_occupied_capacity']}] vs [{curr_occupied_capacity_before_update} with deposit: true], deposit=False, end_time={task['end_time']} (performed before landfill, time_option1={time_option1:.2f} vs time_option2={time_option2:.2f})")
+
+                        # Adjust next task's timing for landfill trip if it exists
+                        if i + 1 < len(self.schedule):
+                            next_task = self.schedule[i + 1]
+                            _,_, time_to_landfill = self.go_to_deposit(task["end_latitude"], task["end_longitude"])
+                            next_task["start_time"] = task["end_time"]
+                            next_task["end_time"] = task["end_time"] + next_task["last_bin_to_new_bin_time"]
+                            next_task["deposit"] = True
+                            print(f"TRUCK_{self.id}: Next task {next_task['proposal_id']} updated: start_time={next_task['start_time']}, end_time={next_task['end_time']}, deposit=True (landfill after task {task['proposal_id']})")
+                        prev_time = task["end_time"]
+                        prev_lat = task["end_latitude"]
+                        prev_long = task["end_longitude"]
+                        i += 1
+                    else:
+                        # Keep landfill trip, stop adjusting
+                        print(f"TRUCK_{self.id}: Task {task['proposal_id']} still requires landfill (time_option1={time_option1:.2f} vs time_option2={time_option2:.2f}), no further waste adjustments")
+                        break
+                else:
+                    # Cannot perform task before landfill, stop adjusting
+                    print(f"TRUCK_{self.id}: Task {task['proposal_id']} still requires landfill due to insufficient capacity, no further waste adjustments")
+                    break
 
     async def update_queue_task_finish(self, proposal_id):
         # async with self._lock:
