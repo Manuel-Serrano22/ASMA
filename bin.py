@@ -134,7 +134,7 @@ class BinAgent(Agent):
                     self.truck_answers += 1
                     if reply_msg.metadata["performative"] == "propose":
                         truck_time, truck_capacity = reply_msg.body.strip().split(";")
-                        self.agent.truck_responses[reply_msg.sender] = (float(truck_time), float(truck_capacity))
+                        self.agent.truck_responses[reply_msg.sender] = (float(truck_time), float(truck_capacity), reply_msg.metadata["proposal_id"]) # also store proposal id, to send replies with it
                          # trucks send expected end time date, not duration, for equal frame of comparison during selection
                         print(f"BIN_{self.agent.id}: Truck {reply_msg.sender} proposed: Time -> {truck_time}, Capacity -> {truck_capacity}")
 
@@ -159,7 +159,7 @@ class BinAgent(Agent):
     class proposalSelection(State):
         async def run(self):
             print(f"BIN_{self.agent.id}: Selecting best trucks among {self.agent.truck_responses}")
-            truck_data = [(str(jid), t[0], t[1]) for jid, t in self.agent.truck_responses.items()]
+            truck_data = [(str(jid), t[0], t[1], t[2]) for jid, t in self.agent.truck_responses.items()]
 
             selected_trucks = self.agent.select_trucks_min_time(truck_data, self.agent.bin_fullness_proposal)
             print(f"BIN_{self.agent.id}: Selected trucks: {selected_trucks}")
@@ -173,15 +173,16 @@ class BinAgent(Agent):
             assignment = {}
 
             for jid in selected_trucks:
-                _, cap = self.agent.truck_responses[jid]
+                _, cap, _ = self.agent.truck_responses[jid]
                 take = min(cap, remaining)
                 assignment[jid] = take
                 remaining -= take
                 if remaining <= 0:
                     break
             
-            for truck, (time, _) in self.agent.truck_responses.items():
+            for truck, (time, _, proposal_id) in self.agent.truck_responses.items():
                 msg = Message(to=str(truck))
+                msg.set_metadata("proposal_id", proposal_id)
                 if str(truck) in selected_trucks:
                     amount = assignment[truck]
                     print(f"BIN_{self.agent.id}: Sending accept-proposal to truck {truck}")
@@ -351,21 +352,21 @@ async def main():
     truck_agent.web.start(hostname="127.0.0.1", port="10001")
     await asyncio.sleep(1)
 
-    # truck_agent2 = truck.TruckAgent("agente5@localhost", SPADE_PASS, 41.234, -8.6124, 350)
-    # await truck_agent2.start()
-    # truck_agent2.web.start(hostname="127.0.0.1", port="10002")
-    # await asyncio.sleep(3)
+    truck_agent2 = truck.TruckAgent("agente5@localhost", SPADE_PASS, 41.234, -8.6124, 200)
+    await truck_agent2.start()
+    truck_agent2.web.start(hostname="127.0.0.1", port="10002")
+    await asyncio.sleep(3)
 
-    # truck_agent3 = truck.TruckAgent("agente6@localhost", SPADE_PASS, 41.1493, -8.5826, 100)
+    # truck_agent3 = truck.TruckAgent("agente6@localhost", SPADE_PASS, 41.1493, -8.5826, 200)
     # await truck_agent3.start()
     # truck_agent3.web.start(hostname="127.0.0.1", port="10003")
     # await asyncio.sleep(3)
 
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, "A", BIN_MAX_CAPACITY, ["agente4@localhost"], 40.0, -8.0)
+    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, "A", BIN_MAX_CAPACITY, ["agente4@localhost", "agente5@localhost"], 40.0, -8.0)
     await fsmagent.start(auto_register=True)
     fsmagent.web.start(hostname="127.0.0.1", port="10004")
 
-    fsmagent_2 = BinAgent("agente2@localhost", SPADE_PASS, "B", BIN_MAX_CAPACITY, ["agente4@localhost"], 42.0, -8.0)
+    fsmagent_2 = BinAgent("agente2@localhost", SPADE_PASS, "B", BIN_MAX_CAPACITY, ["agente4@localhost", "agente5@localhost"], 42.0, -8.0)
     await fsmagent_2.start(auto_register=True)
     fsmagent_2.web.start(hostname="127.0.0.1", port="10005")
 
