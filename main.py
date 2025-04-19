@@ -1,3 +1,4 @@
+import sys
 import spade
 from spade.agent import Agent
 import asyncio
@@ -30,6 +31,16 @@ async def main():
 
     if SPADE_PASS is None:
         raise ValueError("Missing SPADE_PASS in environment. Check .env file or environment variables.")
+    
+    # Provided by the user via terminal: num_trucks, bin_filling_rate_time, bin_filling_rate_quantity
+    if len(sys.argv) == 4:
+        num_trucks = int(sys.argv[1])
+        bin_filling_rate_time = int(sys.argv[2])
+        bin_filling_rate_quantity = int(sys.argv[3])
+    else:
+        num_trucks = int(input("Enter the number of trucks: "))
+        bin_filling_rate_time = int(input("Enter bin filling rate time interval: "))
+        bin_filling_rate_quantity = int(input("Enter bin filling rate quantity: "))
 
     # read information from dataset
     df = pd.read_csv("dataset/dataset.csv") #  -> dataset completo
@@ -48,11 +59,6 @@ async def main():
     port += 1
     agent_list.append(world_agent)
 
-    # Provided by the user via terminal -> Time interval(bin filling rate)
-    # Bin filling rate (quantity), Number of trucks
-    num_trucks = int(input("Enter the number of trucks: "))
-    bin_filling_rate_time = int(input("Enter bin filling rate time interval: "))
-    bin_filling_rate_quantity = int(input("Enter bin filling rate quantity: "))
 
     # trash per second
     bin_filling = bin_filling_rate_quantity / bin_filling_rate_time

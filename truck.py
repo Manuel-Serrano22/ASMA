@@ -331,16 +331,16 @@ class TruckAgent(Agent):
                 print(f"TRUCK_{self.id}: No tasks to update after cancellation of {proposal_id}")
                 return
             
-            # get the previous task's location 
-            # not possible for the current task to be cancelled (aka there is always a previous task) since it had to be previously accepted to be performed in the first place 
-            if cancelled_index <= 0:
-                print(f"TRUCK_{self.id}: Cancelling current task {proposal_id}, how have we reached this point?")
-
-            prev_task = self.schedule[cancelled_index - 1]
-            prev_lat = prev_task["end_latitude"]
-            prev_long = prev_task["end_longitude"]
-            prev_time = prev_task["end_time"]
-
+            if cancelled_index > 0:
+                prev_task = self.schedule[cancelled_index - 1]
+                prev_lat = prev_task["end_latitude"]
+                prev_long = prev_task["end_longitude"]
+                prev_time = prev_task["end_time"]
+            else:
+                prev_lat = self.lat
+                prev_long = self.long
+                prev_time = asyncio.get_event_loop().time()
+                
             # calculate new timing for the first task after the cancelled one
             first_task_after = self.schedule[cancelled_index] # task after the cancelled one is now on the same position as the cancelled one
             dist_to_first = haversine(first_task_after["end_latitude"], first_task_after["end_longitude"], prev_lat, prev_long)
@@ -377,16 +377,29 @@ class TruckAgent(Agent):
         
         i = start_index
 
+        if (i > 0):
+            prev_task = self.schedule[i - 1]
+            prev_lat = prev_task["end_latitude"]
+            prev_long = prev_task["end_longitude"]
+            prev_time = prev_task["end_time"]
+        else:
+            prev_lat = self.lat
+            prev_long = self.long
+            prev_time = asyncio.get_event_loop().time()
+  
         while i < len(self.schedule):
             task = self.schedule[i]
             # Get previous capacity (from previous task or current waste if last task is first task)
-            prev_occupied_capacity = self.schedule[i - 1]["end_occupied_capacity"] # previous task's occupied capacity
+            prev_occupied_capacity = self.schedule[i - 1]["end_occupied_capacity"] if i > start_index else self.current_waste # previous task's occupied capacity
             curr_occupied_capacity_before_update = task["end_occupied_capacity"] # current task's occupied capacity before doing update
 
             # if task doesnt' require landfill, reduce occupied capacity
             if not task["deposit"]:
                 task["end_occupied_capacity"] = max(0, task["end_occupied_capacity"] - waste_diff)
                 print(f"TRUCK_{self.id}: Task {task['proposal_id']} updated: end_occupied_capacity={task['end_occupied_capacity']} (no landfill required)")
+                prev_lat = task["end_latitude"]
+                prev_long = task["end_longitude"]
+                prev_time = task["end_time"]
                 i += 1
             else:
                 # Task originally required landfill, check if it can be done before landfill

@@ -16,7 +16,7 @@ BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
 
 BIN_MAX_CAPACITY = 100 # max bin capacity
-BIN_THRESHOLD_RATIO = 0.1 # threshold for bin to send cfp contracts
+BIN_THRESHOLD_RATIO = 0.5 # threshold for bin to send cfp contracts
 BIN_FILL_RATE = 30
 BIN_FILL_SPEED = 2 # every x seconds, fill the bin with garbage
 
