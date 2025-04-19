@@ -34,6 +34,10 @@ class BinAgent(Agent):
         self.fill_rate_time = fill_rate_time
         self.fill_rate_quantity = fill_rate_quantity
 
+
+        self.fill_rate_time = fill_rate_time
+        self.fill_rate_quantity = fill_rate_quantity
+
         self.bin_fullness = 0
         self.bin_fullness_proposal = 0 # store the bin fullness when sending the proposal
         self.truck_responses = {}
@@ -46,6 +50,17 @@ class BinAgent(Agent):
         self.peak_overflow_cycle   = 0.0
         self.total_overflow_peaks  = 0.0 # total quantity of waste that overflowed
         self.waste_level = []
+
+    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
+
+        async def run(self):
+            msg = Message(to="world@localhost")
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("type", "bin_status_update")
+            msg.body = f"{self.agent.jid};{self.agent.total_time_full};{self.agent.total_overflow_peaks};{self.agent.waste_level}"
+            await self.send(msg)
+            print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
+
 
     class SendCapacityUpdateBehaviour(PeriodicBehaviour):
 

@@ -3,6 +3,7 @@ from spade.template import Template
 import spade
 from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, CyclicBehaviour, PeriodicBehaviour
+from spade.behaviour import FSMBehaviour, State, CyclicBehaviour, PeriodicBehaviour
 from spade.message import Message
 import asyncio
 from utils import haversine, get_distance_truck_to_deposit, get_latitude_from_deposit, get_longitude_from_deposit

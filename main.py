@@ -58,8 +58,6 @@ async def main():
     port_str = str(port)
     world_agent.web.start(hostname="127.0.0.1", port=port_str)
     port += 1
-    agent_list.append(world_agent)
-
 
     # trash per second
     bin_filling = bin_filling_rate_quantity / bin_filling_rate_time
@@ -107,7 +105,7 @@ async def main():
 
 
     display_stats(world_agent.bin_stats, world_agent.truck_stats, world_agent.total_waste_collected)
-
+    
     world_agent.stop_requested = True
     await asyncio.sleep(1)
 
