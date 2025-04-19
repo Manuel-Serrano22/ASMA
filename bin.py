@@ -15,13 +15,11 @@ BIN_STATE_ONE = "CHECK_BIN"
 BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
 
-BIN_MAX_CAPACITY = 100 # max bin capacity
 BIN_THRESHOLD_RATIO = 0.5 # threshold for bin to send cfp contracts
-BIN_FILL_RATE = 30
-BIN_FILL_SPEED = 2 # every x seconds, fill the bin with garbage
 
 WAIT_RESPONSES_TIMEOUT = 1.5 # seconds
 WAIT_TASK_RESULT_TIMEOUT = 1 # seconds
+WORLD_UPDATE_TIME = 1 # seconds
 
 class BinAgent(Agent):
 
@@ -266,7 +264,7 @@ class BinAgent(Agent):
 
 
     async def setup(self):
-        sendUpdate = self.SendCapacityUpdateBehaviour(period=5)  # every 5 seconds, send update to world
+        sendUpdate = self.SendCapacityUpdateBehaviour(period=WORLD_UPDATE_TIME)  # every 5 seconds, send update to world
         self.add_behaviour(sendUpdate)
         binFill = self.FillBinBehaviour(period=self.fill_rate_time) # every 1 seconds, fill the bin with garbage # AKA BIN_FILL_SPEED
         self.add_behaviour(binFill)

@@ -1,3 +1,4 @@
+import datetime
 import sys
 import spade
 from spade.agent import Agent
@@ -79,7 +80,6 @@ async def main():
         agent_list.append(truck_agent)
         port_str = str(port)
         truck_agent.web.start(hostname="127.0.0.1", port=port_str)
-        await asyncio.sleep(3)
         port += 1
 
     for _, row in df[:-1].iterrows():
@@ -93,10 +93,9 @@ async def main():
         agent_list.append(fsmagent)
         port_str = str(port)
         fsmagent.web.start(hostname="127.0.0.1", port=port_str)
-        await asyncio.sleep(3)
         port += 1
     
-    sim_duration = 10 # seconds
+    sim_duration = 30 # seconds
     await asyncio.sleep(sim_duration)
 
     # Gracefully stop all agents
@@ -106,8 +105,6 @@ async def main():
         await agent.stop()
         print(f"{agent.name} has been stopped.")
 
-
-    await asyncio.sleep(5)
 
     display_stats(world_agent.bin_stats, world_agent.truck_stats, world_agent.total_waste_collected)
 
