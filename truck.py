@@ -16,7 +16,7 @@ TRUCK_STATE_ONE = "SEND_PROPOSAL"
 TRUCK_STATE_TWO = "WAIT_RESPONSE"
 TRUCK_STATE_THREE = "PERFORM ACTION"
 
-TRUCK_CAPACITY = 200
+TRUCK_CAPACITY = 100
 TRUCK_SPEED = 100  # meters per second
 
 MAX_SCHEDULED_TASKS = 10
@@ -26,14 +26,14 @@ ACCEPT_PROPOSAL_TIMEOUT = 2  # time to wait for a response from the bin before a
 
 class TruckAgent(Agent):
     
-    def __init__(self, jid, password, latitude, longitude, capacity):
+    def __init__(self, jid, password, latitude, longitude):
         super().__init__(jid, password)
 
         # shared state between behaviours
         self.id = jid.split("@")[0].split("agente")[1]  # extract the agent ID from the JID, for easier debug
         self.lat = latitude
         self.long = longitude
-        self.capacity = capacity
+        self.capacity = TRUCK_CAPACITY
         self.current_waste = 0
         self.bins_stats = {} # {bin_id: [capacity, lat, long, distance]}
         self.proposals = []  # store CFP proposals from bins
@@ -43,7 +43,18 @@ class TruckAgent(Agent):
         self.total_waste_collected = 0
         self.distance_traveled = 0
         self._lock = asyncio.Lock()  # for managing access to shared state
-        
+
+
+    class SendUpdateBehaviour(PeriodicBehaviour):
+
+        async def run(self):
+            msg = Message(to="world@localhost")
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("type", "truck_status_update")
+            msg.body = f"{self.agent.jid};{self.agent.distance_traveled};{self.agent.total_waste_collected}"
+            await self.send(msg)
+            print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
+
     # periodic behaviour to receive CFP proposals from bins, only responsible for receiving messages
     class ReceiveCFPBehaviour(PeriodicBehaviour):
         async def run(self):
@@ -64,7 +75,7 @@ class TruckAgent(Agent):
                     print(f"TRUCK_{self.agent.id}: non-CFP message from {msg.sender}")
             else:
                 print(f"TRUCK_{self.agent.id}: No messages received during this check")
-
+                
     # behaviour to manage spawning FSMs for each proposal
     # creates infinite FSMs, but accept_proposal condition inside FSM limits the number of scheduled tasks
     class ProcessProposalsBehaviour(CyclicBehaviour):
@@ -488,6 +499,10 @@ class TruckAgent(Agent):
         return fsm, ~fsm_template # FSM behaviour will only deal with non cfp messages
 
     async def setup(self):
+
+        sendUpdate = self.SendUpdateBehaviour(period=5)  # every 5 seconds, send update to world
+        self.add_behaviour(sendUpdate)
+    
         cfp_template = Template()
         cfp_template.set_metadata("performative", "cfp")
         
@@ -503,14 +518,3 @@ class TruckAgent(Agent):
     async def finish(self, proposal_id):
         print(f"TRUCK_{self.id}: Finished FSM for proposal {proposal_id}")
         # any other cleanup code needd?
-
-async def main():
-    truck_agent = TruckAgent("agente2@localhost", SPADE_PASS, 41.1693, -8.6026, TRUCK_CAPACITY)
-    await truck_agent.start(auto_register=True)
-
-    await spade.wait_until_finished(truck_agent)
-    await truck_agent.stop()
-    print("Agent finished")
-
-if __name__ == "__main__":
-    spade.run(main())

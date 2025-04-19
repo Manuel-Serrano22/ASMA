@@ -25,31 +25,47 @@ WAIT_TASK_RESULT_TIMEOUT = 1 # seconds
 
 class BinAgent(Agent):
 
-    def __init__(self, jid, password, id, max_capacity, known_trucks, latitude, longitude):
+    def __init__(self, jid, password, id, known_trucks, latitude, longitude, fill_rate_time, fill_rate_quantity):
         super().__init__(jid, password)
         # shared state between behaviours
 
         self.id = id
         self.latitude = latitude
         self.longitude = longitude
+
+        self.fill_rate_time = fill_rate_time
+        self.fill_rate_quantity = fill_rate_quantity
+
         self.bin_fullness = 0
         self.bin_fullness_proposal = 0 # store the bin fullness when sending the proposal
         self.truck_responses = {}
-        self.max_capacity = max_capacity
+        self.max_capacity = 20
         self.threshold_ratio = BIN_THRESHOLD_RATIO # 80% of the bin max capacity
         self.known_trucks = known_trucks # list of known trucks
         self.time_full_start = None # moment it started to be full
         self.total_time_full = 0 # total time the bin has been full
         self.in_overflow = False
         self.peak_overflow_cycle   = 0.0
-        self.total_overflow_peaks  = 0.0
+        self.total_overflow_peaks  = 0.0 # total quantity of waste that overflowed
         self.waste_level = []
+
+    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
+
+        async def run(self):
+            msg = Message(to="world@localhost")
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("type", "bin_status_update")
+            msg.body = f"{self.agent.jid};{self.agent.total_time_full};{self.agent.total_overflow_peaks};{self.agent.waste_level}"
+            await self.send(msg)
+            print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
+
 
     # progressively fill bin with garbage
     class FillBinBehaviour(PeriodicBehaviour):
         async def run(self):
-            self.agent.bin_fullness += BIN_FILL_RATE
+            self.agent.bin_fullness += self.agent.fill_rate_quantity # aka BIN_FILL_RATE
             print(f"BIN_{self.agent.id}: Bin fullness: {self.agent.bin_fullness}")
+
 
             excess = self.agent.bin_fullness - self.agent.max_capacity
 
@@ -80,16 +96,6 @@ class BinAgent(Agent):
         async def run(self):
             self.agent.time += 1 # increment time every second
 
-    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
-        async def run(self):
-            for truck_jid in self.agent.known_trucks:
-                msg = Message(to=truck_jid)
-                msg.set_metadata("performative", "inform")
-                msg.set_metadata("type", "bin_status_update")
-                msg.body = f"{self.agent.id};{self.agent.bin_fullness};{self.agent.max_capacity};{self.agent.latitude};{self.agent.longitude}"
-                await self.send(msg)
-                #print(f"BIN: Sent capacity update to {truck_jid} -> {msg.body}")
-        
     class BinFSMBehaviour(FSMBehaviour):
         async def on_start(self):
             print(f"BIN_{self.agent.id}: Bin starting at {self.current_state}")
@@ -260,7 +266,9 @@ class BinAgent(Agent):
 
 
     async def setup(self):
-        binFill = self.FillBinBehaviour(period=BIN_FILL_SPEED) 
+        sendUpdate = self.SendCapacityUpdateBehaviour(period=5)  # every 5 seconds, send update to world
+        self.add_behaviour(sendUpdate)
+        binFill = self.FillBinBehaviour(period=self.fill_rate_time) # every 1 seconds, fill the bin with garbage # AKA BIN_FILL_SPEED
         self.add_behaviour(binFill)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
@@ -337,80 +345,7 @@ class BinAgent(Agent):
                 c -= cap
         return selected[::-1]
 
-TRUCK_STATE_ONE = "RECEIVE_CFP"
-TRUCK_STATE_TWO = "PERFORM_ACTION"
 
-#NOTA: Truck tem dois behaviours:
-# - um para receber pedidos CFP e colocar numa queue
-# - outro para FSM, que processa os pedidos CFP da queue sequencialmente.
-# - Faz sentido ter um CFP a processar pedidos sequencialmente? Acho que não é possível satisfazer mais do que um pedido ao mesmo tempo, um camião ou vai a um sitio ou vai a outro, por isso paralelizar não importa, certo?
 
  
-async def main():
-    truck_agent = truck.TruckAgent("agente4@localhost", SPADE_PASS, 41.1693, -8.6026, 200)
-    await truck_agent.start()
-    truck_agent.web.start(hostname="127.0.0.1", port="10001")
-    await asyncio.sleep(1)
 
-    truck_agent2 = truck.TruckAgent("agente5@localhost", SPADE_PASS, 41.234, -8.6124, 200)
-    await truck_agent2.start()
-    truck_agent2.web.start(hostname="127.0.0.1", port="10002")
-    await asyncio.sleep(3)
-
-    # truck_agent3 = truck.TruckAgent("agente6@localhost", SPADE_PASS, 41.1493, -8.5826, 200)
-    # await truck_agent3.start()
-    # truck_agent3.web.start(hostname="127.0.0.1", port="10003")
-    # await asyncio.sleep(3)
-
-    fsmagent = BinAgent("agente1@localhost", SPADE_PASS, "A", BIN_MAX_CAPACITY, ["agente4@localhost", "agente5@localhost"], 40.0, -8.0)
-    await fsmagent.start(auto_register=True)
-    fsmagent.web.start(hostname="127.0.0.1", port="10004")
-
-    fsmagent_2 = BinAgent("agente2@localhost", SPADE_PASS, "B", BIN_MAX_CAPACITY, ["agente4@localhost", "agente5@localhost"], 42.0, -8.0)
-    await fsmagent_2.start(auto_register=True)
-    fsmagent_2.web.start(hostname="127.0.0.1", port="10005")
-
-    # fsmagent_3 = BinAgent("agente3@localhost", SPADE_PASS, "C", BIN_MAX_CAPACITY, ["agente4@localhost"], 43.0, -8.0)
-    # await fsmagent_3.start(auto_register=True)
-    # fsmagent_3.web.start(hostname="127.0.0.1", port="10006")
-
-    sim_duration = 30 # seconds
-    await asyncio.sleep(sim_duration)
-
-    # If the simulation ends while the bin is still full, the time_full_start is still running 
-    if fsmagent.time_full_start is not None:
-        duration = fsmagent.time - fsmagent.time_full_start
-        fsmagent.total_time_full += duration
-        fsmagent.time_full_start = None
-
-    if fsmagent.in_overflow:
-        fsmagent.total_overflow_peaks += fsmagent.peak_overflow_cycle
-        fsmagent.peak_overflow_cycle = 0
-        fsmagent.in_overflow = False
-
-    print("\n--- BIN METRICS ---")
-    print(f"Total time bin was full: {fsmagent.total_time_full:.2f} seconds")
-    print(f"Total overflow accumulated: {fsmagent.total_overflow_peaks:.2f} units")
-
-    await spade.wait_until_finished(truck_agent)
-    # await spade.wait_until_finished(truck_agent2)
-    # await spade.wait_until_finished(truck_agent3)
-
-    await spade.wait_until_finished(fsmagent)
-    # await spade.wait_until_finished(fsmagent_2)
-    # await spade.wait_until_finished(fsmagent_3)
-
-    await fsmagent.stop()
-    # await fsmagent_2.stop()
-    # await fsmagent_3.stop()
-
-    print(f"BIN: Bins finished")
-
-    await truck_agent.stop()
-    # await truck_agent_2.stop()
-    # await truck_agent_3.stop()
-
-    print("TRUCK: Trucks finished")
-
-if __name__ == "__main__":
-    spade.run(main())
