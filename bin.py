@@ -15,11 +15,28 @@ BIN_STATE_ONE = "CHECK_BIN"
 BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
 
-BIN_THRESHOLD_RATIO = 0.5 # threshold for bin to send cfp contracts
-
 WAIT_RESPONSES_TIMEOUT = 1.5 # seconds
 WAIT_TASK_RESULT_TIMEOUT = 1 # seconds
 WORLD_UPDATE_TIME = 1 # seconds
+
+def calculate_bin_threshold_ratio(fill_rate_time, fill_rate_quantity):
+
+    if fill_rate_time <= 0 or fill_rate_quantity <= 0:
+        return 100  
+    
+    fill_rate = fill_rate_quantity / fill_rate_time
+
+    max_threshold = 90
+    min_threshold = 30
+
+    # Clamp rate into a reasonable range
+    normalized_rate = min(max(fill_rate, 0.1), 10)
+
+    # Invert and scale
+    scale = (10 - normalized_rate) / (10 - 0.1)
+    threshold = min_threshold + scale * (max_threshold - min_threshold)
+
+    return round(threshold/100,2)
 
 class BinAgent(Agent):
 
@@ -34,15 +51,11 @@ class BinAgent(Agent):
         self.fill_rate_time = fill_rate_time
         self.fill_rate_quantity = fill_rate_quantity
 
-
-        self.fill_rate_time = fill_rate_time
-        self.fill_rate_quantity = fill_rate_quantity
-
         self.bin_fullness = 0
         self.bin_fullness_proposal = 0 # store the bin fullness when sending the proposal
         self.truck_responses = {}
         self.max_capacity = 20
-        self.threshold_ratio = BIN_THRESHOLD_RATIO # 80% of the bin max capacity
+        self.threshold_ratio = calculate_bin_threshold_ratio(fill_rate_time,fill_rate_quantity)
         self.known_trucks = known_trucks # list of known trucks
         self.time_full_start = None # moment it started to be full
         self.total_time_full = 0 # total time the bin has been full

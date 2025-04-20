@@ -25,10 +25,12 @@ def display_stats(bin_stats, truck_stats, total_waste_collected):
             print(f"    - Current Waste Level:   {stats[3]}")
 
     print("\n🚚 Truck Stats:")
+    total_distance = 0
     for truck_id, stats in truck_stats.items():
         print(f"  Truck {truck_id}:")
-        print(f"    - Total Distance Traveled: {stats:.2f}")
-
+        print(f"    - Total Distance Traveled: {stats:.2f} km")
+        total_distance += stats
+    print("\n Total Distance Travelled ----> " + str(round(total_distance, 2)) + " km")
     print("\n Total Waste Collected ----> " + str(total_waste_collected))
 
 async def main():
