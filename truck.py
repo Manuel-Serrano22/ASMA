@@ -54,7 +54,7 @@ class TruckAgent(Agent):
             msg.set_metadata("type", "truck_status_update")
             msg.body = f"{self.agent.jid};{self.agent.distance_traveled};{self.agent.total_waste_collected}"
             await self.send(msg)
-            print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
+            print(f"\033[92mTruck: Sent capacity update to world -> {msg.body}\033[0m")
 
     # periodic behaviour to receive CFP proposals from bins, only responsible for receiving messages
     class ReceiveCFPBehaviour(PeriodicBehaviour):

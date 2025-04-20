@@ -24,7 +24,7 @@ class WorldAgent(Agent):
             msg = await self.receive(timeout=2)
 
             if msg and msg.metadata.get("type") == "bin_status_update":
-                bin_id, total_time_full, total_overflow_peaks, waste_level = msg.body.strip().split(";")
+                bin_id, total_time_full, total_overflow_peaks, waste_level, current_waste = msg.body.strip().split(";")
                 total_time_full = float(total_time_full)
                 total_overflow_peak = float(total_overflow_peaks)
                 waste_level = ast.literal_eval(waste_level)
@@ -34,7 +34,7 @@ class WorldAgent(Agent):
                     average = 0
                 else:
                     average = sum(waste_level) / len(waste_level)
-                self.agent.bin_stats[bin_id] = [total_time_full, total_overflow_peaks, average]
+                self.agent.bin_stats[bin_id] = [total_time_full, total_overflow_peaks, average, current_waste]
             elif msg and msg.metadata.get("type") == "truck_status_update":
                 truck_id, distance_traveled, waste_collected = msg.body.strip().split(";")
                 distance_traveled = float(distance_traveled)

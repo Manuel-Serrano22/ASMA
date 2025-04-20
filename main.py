@@ -1,4 +1,5 @@
 import datetime
+import re
 import sys
 import spade
 from spade.agent import Agent
@@ -16,10 +17,12 @@ SPADE_PASS = os.getenv('SPADE_PASS')
 def display_stats(bin_stats, truck_stats, total_waste_collected):
     print("🚮 Bin Stats:")
     for bin_id, stats in bin_stats.items():
-        print(f"  Bin {bin_id}:")
-        print(f"    - Total Time Full:       {stats[0]}")
-        print(f"    - Total Waste Overflow:  {stats[1]}")
-        print(f"    - Average Waste:         {stats[2]:.2f}")
+        if not re.match(r"agente[a-zA-Z]@localhost", bin_id):
+            print(f"  Bin {bin_id}:")
+            print(f"    - Total Time Full:       {stats[0]}")
+            print(f"    - Total Waste Overflow:  {stats[1]}")
+            print(f"    - Average Waste:         {stats[2]:.2f}")
+            print(f"    - Current Waste Level:   {stats[3]}")
 
     print("\n🚚 Truck Stats:")
     for truck_id, stats in truck_stats.items():
@@ -30,8 +33,8 @@ def display_stats(bin_stats, truck_stats, total_waste_collected):
 
 async def main():
 
-    if SPADE_PASS is None:
-        raise ValueError("Missing SPADE_PASS in environment. Check .env file or environment variables.")
+    #if SPADE_PASS is None:
+      #  raise ValueError("Missing SPADE_PASS in environment. Check .env file or environment variables.")
     
     # Provided by the user via terminal: num_trucks, bin_filling_rate_time, bin_filling_rate_quantity
     if len(sys.argv) == 4:
@@ -98,6 +101,9 @@ async def main():
 
     # Gracefully stop all agents
     for agent in agent_list:
+        if isinstance(agent, bin.BinAgent):
+            agent.add_behaviour(agent.FinalReportBehaviour())
+            await asyncio.sleep(0.5)
         for behaviour in agent.behaviours:
             behaviour.kill()
         await agent.stop()

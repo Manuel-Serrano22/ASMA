@@ -51,16 +51,6 @@ class BinAgent(Agent):
         self.total_overflow_peaks  = 0.0 # total quantity of waste that overflowed
         self.waste_level = []
 
-    class SendCapacityUpdateBehaviour(PeriodicBehaviour):
-
-        async def run(self):
-            msg = Message(to="world@localhost")
-            msg.set_metadata("performative", "inform")
-            msg.set_metadata("type", "bin_status_update")
-            msg.body = f"{self.agent.jid};{self.agent.total_time_full};{self.agent.total_overflow_peaks};{self.agent.waste_level}"
-            await self.send(msg)
-            print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
-
 
     class SendCapacityUpdateBehaviour(PeriodicBehaviour):
 
@@ -68,7 +58,7 @@ class BinAgent(Agent):
             msg = Message(to="world@localhost")
             msg.set_metadata("performative", "inform")
             msg.set_metadata("type", "bin_status_update")
-            msg.body = f"{self.agent.jid};{self.agent.total_time_full};{self.agent.total_overflow_peaks};{self.agent.waste_level}"
+            msg.body = f"{self.agent.jid};{self.agent.total_time_full};{self.agent.total_overflow_peaks};{self.agent.waste_level};{self.agent.bin_fullness}"
             await self.send(msg)
             print(f"\033[91mBIN: Sent capacity update to world -> {msg.body}\033[0m")
 
@@ -277,6 +267,25 @@ class BinAgent(Agent):
             self.agent.truck_responses = {} # reset trucks
             self.set_next_state(BIN_STATE_ONE) # transitions again to state one
 
+    class FinalReportBehaviour(OneShotBehaviour):
+        async def run(self):
+            if self.agent.time_full_start is not None:
+                duration = self.agent.time - self.agent.time_full_start
+                self.agent.total_time_full += duration
+                self.agent.time_full_start = None
+
+            if self.agent.in_overflow:
+                self.agent.total_overflow_peaks += self.agent.peak_overflow_cycle
+                self.agent.peak_overflow_cycle = 0
+                self.agent.in_overflow = False
+
+            msg = Message(to="world@localhost")
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("type", "bin_status_update")
+            msg.body = f"{self.agent.id};{self.agent.total_time_full};{self.agent.total_overflow_peaks};{self.agent.waste_level};{self.agent.bin_fullness}"
+            await self.send(msg)
+            print(f"BIN {self.agent.id}: Final stats sent to WorldAgent.")
+
 
     async def setup(self):
         sendUpdate = self.SendCapacityUpdateBehaviour(period=WORLD_UPDATE_TIME)  # every 5 seconds, send update to world
@@ -287,6 +296,7 @@ class BinAgent(Agent):
         self.add_behaviour(fsm)
         self.time = 0 # time in seconds, used to calculate how long the bin has been full
         self.add_behaviour(self.UpdateTimeBehaviour(period=1)) # every 1 seconds, update time
+        self.add_behaviour(self.FinalReportBehaviour()) # send final report to world agent
 
     # setup the transition and states for the fsm behaviour
     def setupFSMBehaviour(self):
