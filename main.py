@@ -11,6 +11,7 @@ import bin as bin
 import pandas as pd
 from utils import *
 import world as world
+
 load_dotenv()
 SPADE_PASS = os.getenv('SPADE_PASS')
 
@@ -49,8 +50,7 @@ async def main():
         bin_filling_rate_quantity = int(input("Enter bin filling rate quantity: "))
 
     # read information from dataset
-    df = pd.read_csv("dataset/dataset.csv") #  -> dataset completo
-    #df = pd.read_csv("dataset/1bin.csv")
+    df = pd.read_csv("dataset/dataset.csv")
 
     # base port
     port = 10000
