@@ -43,8 +43,6 @@ class TruckAgent(Agent):
         #global stats
         self.total_waste_collected = 0
         self.distance_traveled = 0
-        self._lock = asyncio.Lock()  # for managing access to shared state
-
 
     class SendUpdateBehaviour(PeriodicBehaviour):
 
@@ -63,10 +61,10 @@ class TruckAgent(Agent):
             msg = await self.receive(timeout=1)  # timeout after 1 second
             if msg:
                 if msg.metadata["performative"] == "cfp":
-                    print(f"TRUCK_{self.agent.id}: CFP from {msg.sender}")# with body {msg.body}")
+                    print(f"TRUCK_{self.agent.id}: CFP from {msg.sender}")
                     bin_id, bin_capacity, bin_latitute, bin_longitude = msg.body.strip().split(";")
                     self.agent.bins_stats[bin_id] = {
-                        "capacity": float(bin_capacity),  # bin capacity # not very relevant, since bin overwrites the value in accept-proposal, but good to have an initial estimation in contract
+                        "capacity": float(bin_capacity),  # bin cleaning amount required
                         "lat": float(bin_latitute),  # bin latitude
                         "long": float(bin_longitude)  # bin longitude
                     }
@@ -99,11 +97,10 @@ class TruckAgent(Agent):
 
                 print(f"TRUCK_{self.agent.id}: Started FSM for proposal {proposal_id} from {proposal.sender}")
             else:
-                await asyncio.sleep(0.1)  # instead of running constanly
+                await asyncio.sleep(0.5)  # instead of running constanly
 
     class PerformQueueBehaviour(CyclicBehaviour):
         async def run(self):
-            # async with self.agent._lock: # guarantee no conflict when accessing shared schedule
                 if self.agent.schedule and self.agent.schedule[0]["state"] == "confirmed":
                     schedule_entry = self.agent.schedule[0]
                     print(f"TRUCK_{self.agent.id}: simulating task for proposal {schedule_entry['proposal_id']} during {schedule_entry['last_bin_to_new_bin_time']} seconds")
@@ -128,7 +125,7 @@ class TruckAgent(Agent):
                         self.agent.lat = schedule_entry["end_latitude"] # update truck position
                         self.agent.long = schedule_entry["end_longitude"] # update truck position
 
-                        await self.agent.update_queue_task_finish(schedule_entry["proposal_id"]) # remove task from schedule, since it was completed
+                        self.agent.update_queue_task_finish(schedule_entry["proposal_id"]) # remove task from schedule, since it was completed
 
                     #unsucessful cleaning
                     else:
@@ -145,7 +142,6 @@ class TruckAgent(Agent):
         def __init__(self, proposal, proposal_id):
             super().__init__()
 
-            # how to pass these values to the child states properly? Did an "enginheiro" solution
             self.proposal = proposal
             self.proposal_id = proposal_id
             
@@ -177,7 +173,7 @@ class TruckAgent(Agent):
                 bin_occupation = self.agent.bins_stats[bin_id]["capacity"]
 
                 #calculate new schedule entry, and proposal message values, to reach bin considering position and scheduled pickups
-                time_to_bin, available_space_for_task, schedule_entry = await self.agent.calculate_stats_to_bin(bin_latitute, bin_longitude, bin_occupation)
+                time_to_bin, available_space_for_task, schedule_entry = self.agent.calculate_stats_to_bin(bin_latitute, bin_longitude, bin_occupation)
 
                 # add additional info to schedule entry
                 schedule_entry.update({
@@ -197,7 +193,7 @@ class TruckAgent(Agent):
 
                 await self.send(reply)
 
-                print(f"TRUCK_{self.agent.id}: Sent proposal {self.proposal_id} to {self.proposal.sender} with values time:{time_to_bin} aka({schedule_entry['last_bin_to_new_bin_time']}),{available_space_for_task}")
+                print(f"TRUCK_{self.agent.id}: Sent proposal {self.proposal_id} to {self.proposal.sender} with values time:{time_to_bin} aka from prev point({schedule_entry['last_bin_to_new_bin_time']}),{available_space_for_task}")
                 self.set_next_state(TRUCK_STATE_TWO)
 
         # State 2: perform action
@@ -210,12 +206,12 @@ class TruckAgent(Agent):
         
             async def run(self):
                 print(f"TRUCK_{self.agent.id}: Waiting for response on proposal {self.proposal_id}")
-                msg = await self.receive(timeout=ACCEPT_PROPOSAL_TIMEOUT)  # wait for a message for 10 seconds > longer than the bin's timeout on other proposals !
+                msg = await self.receive(timeout=ACCEPT_PROPOSAL_TIMEOUT)  # wait for a message for some seconds -> longer than the bin's timeout on other proposals !
                 if (not msg):
                     print(f"TRUCK_{self.agent.id}: No response for proposal {self.proposal_id}")
 
                     # end behaviour
-                    await self.agent.update_queue_task_cancel(self.proposal_id) # remove task from schedule, since no response was received
+                    self.agent.update_queue_task_cancel(self.proposal_id) # remove task from schedule, since no response was received
                     print(f"TRUCK_{self.agent.id}: Finished FSM for proposal {self.proposal_id}")
 
                     return
@@ -224,7 +220,7 @@ class TruckAgent(Agent):
                     print(f"TRUCK_{self.agent.id}: Proposal {self.proposal_id} rejected by {msg.sender}")
 
                     # end behaviour
-                    await self.agent.update_queue_task_cancel(self.proposal_id) # remove task from schedule, since it was rejected
+                    self.agent.update_queue_task_cancel(self.proposal_id) # remove task from schedule, since it was rejected
                     print(f"TRUCK_{self.agent.id}: Finished FSM for proposal {self.proposal_id}")
 
                     return
@@ -236,16 +232,15 @@ class TruckAgent(Agent):
                     bin_id, _, waste = msg.body.strip().split(";")
                     waste = float(waste) # waste to be collected from bin
 
-                    # async with self.agent._lock: # guarantee no conflict when accessing shared schedule
                     for i, entry in enumerate(self.agent.schedule):
                         if entry["proposal_id"] == self.proposal_id:
 
                             #check if bin is actually expecting less waste cleaned than proposed
                             waste_diff = self.agent.schedule[i]["waste"] - waste
-                            if (waste_diff > 1.0):
+                            if (waste_diff > 1.0): # 0 wasnt working with float comparison, so using 1.0 as threshold
                                 print(f"TRUCK_{self.agent.id}: Proposal {self.proposal_id} accepted by {msg.sender}, but with less waste to collect: ([{waste}] vs {self.agent.schedule[i]['waste']})")
                                 self.agent.schedule[i]["waste"] = waste
-                                await self.agent.update_queue_task_waste(self.proposal_id, waste_diff, start_index=i) # update subsequent tasks in queue to have more available space for the new task
+                                self.agent.update_queue_task_waste(self.proposal_id, waste_diff, start_index=i) # update subsequent tasks in queue to have more available space for the new task
                             
                             # update state of the task to confirmed, and performable by PerformQueueBehaviour
                             self.agent.schedule[i]["state"] = "confirmed" 
@@ -258,9 +253,9 @@ class TruckAgent(Agent):
                     print(f"TRUCK_{self.agent.id}: Unexpected message for proposal {self.proposal_id}: {msg.metadata['performative']}")
                     self.set_next_state(TRUCK_STATE_TWO) # repeat state, waiting for answer
     
-    async def calculate_stats_to_bin(self, bin_lat, bin_long, bin_waste):
+    def calculate_stats_to_bin(self, bin_lat, bin_long, bin_waste):
         went_to_deposit = False
-        # async with self._lock:
+
         # if there are scheduled tasks, calculate time to reach bin considering last task stats on queue
         if (len(self.schedule) > 0):
             last_task = self.schedule[-1]
@@ -289,7 +284,7 @@ class TruckAgent(Agent):
         final_occupied_capacity = min(self.capacity, last_occupied_capacity + bin_waste) # capacity to reach bin, considering last task end capacity
         used_capacity = min(bin_waste, self.capacity - last_occupied_capacity) # waste to be collected from bin in the new task, considering last task end capacity
         
-        print(f"TRUCK_{self.id}: Calculated stats to bin {bin_lat}, {bin_long} with waste {bin_waste}:")
+        # print(f"TRUCK_{self.id}: Calculated stats to bin {bin_lat}, {bin_long} with waste {bin_waste}:")
         print(f"TRUCK_{self.id}: waste to be collected from bin: {used_capacity}, final occupied_space after task: {final_occupied_capacity}/{self.capacity}")
     
         schedule_entry = {
@@ -306,69 +301,68 @@ class TruckAgent(Agent):
         
         return final_time, used_capacity, schedule_entry # return time to bin, available space for task, and schedule entry with all the info needed to track the task
     
-    async def update_queue_task_cancel(self, proposal_id):
-        # async with self._lock:
+    def update_queue_task_cancel(self, proposal_id):
 
-            # find the cancelled task index
-            cancelled_task = None
-            cancelled_index = -1
-            for i, entry in enumerate(self.schedule):
-                if entry["proposal_id"] == proposal_id:
-                    cancelled_task = entry
-                    cancelled_index = i
-                    break
+        # find the cancelled task index
+        cancelled_task = None
+        cancelled_index = -1
+        for i, entry in enumerate(self.schedule):
+            if entry["proposal_id"] == proposal_id:
+                cancelled_task = entry
+                cancelled_index = i
+                break
+        
+        # security check for the task existence
+        if cancelled_task is None:
+            print(f"TRUCK_{self.id}: Proposal {proposal_id} not found in schedule")
+            return
+
+        # remove the cancelled task
+        self.schedule.pop(cancelled_index)
+        print(f"TRUCK_{self.id}: Cancelled task for proposal {proposal_id}, removed from schedule")
+
+        #  since this task was cancelled, update all subsequent tasks in the queue values: time and waste, since this task was cancelled
+        if not self.schedule or cancelled_index >= len(self.schedule):
+            print(f"TRUCK_{self.id}: No tasks to update after cancellation of {proposal_id}")
+            return
+        
+        if cancelled_index > 0:
+            prev_task = self.schedule[cancelled_index - 1]
+            prev_lat = prev_task["end_latitude"]
+            prev_long = prev_task["end_longitude"]
+            prev_time = prev_task["end_time"]
+        else:
+            prev_lat = self.lat
+            prev_long = self.long
+            prev_time = asyncio.get_event_loop().time()
             
-            # security check for the task existence
-            if cancelled_task is None:
-                print(f"TRUCK_{self.id}: Proposal {proposal_id} not found in schedule")
-                return
+        # calculate new timing for the first task after the cancelled one
+        first_task_after = self.schedule[cancelled_index] # task after the cancelled one is now on the same position as the cancelled one
+        dist_to_first = haversine(first_task_after["end_latitude"], first_task_after["end_longitude"], prev_lat, prev_long)
+        new_time_to_first = dist_to_first / TRUCK_SPEED
+        time_saved = cancelled_task["last_bin_to_new_bin_time"] - new_time_to_first
 
-            # remove the cancelled task
-            self.schedule.pop(cancelled_index)
-            print(f"TRUCK_{self.id}: Cancelled task for proposal {proposal_id}, removed from schedule")
+        # update the first task's timing, considering it will now go directly from the previous task to the first task after the cancelled one
+        first_task_after["start_time"] = prev_time
+        first_task_after["end_time"] = prev_time + new_time_to_first
+        first_task_after["last_bin_to_new_bin_distance"] = dist_to_first
+        first_task_after["last_bin_to_new_bin_time"] = new_time_to_first
 
-            #  since this task was cancelled, update all subsequent tasks in the queue values: time and waste, since this task was cancelled
-            if not self.schedule or cancelled_index >= len(self.schedule):
-                print(f"TRUCK_{self.id}: No tasks to update after cancellation of {proposal_id}")
-                return
-            
-            if cancelled_index > 0:
-                prev_task = self.schedule[cancelled_index - 1]
-                prev_lat = prev_task["end_latitude"]
-                prev_long = prev_task["end_longitude"]
-                prev_time = prev_task["end_time"]
-            else:
-                prev_lat = self.lat
-                prev_long = self.long
-                prev_time = asyncio.get_event_loop().time()
-                
-            # calculate new timing for the first task after the cancelled one
-            first_task_after = self.schedule[cancelled_index] # task after the cancelled one is now on the same position as the cancelled one
-            dist_to_first = haversine(first_task_after["end_latitude"], first_task_after["end_longitude"], prev_lat, prev_long)
-            new_time_to_first = dist_to_first / TRUCK_SPEED
-            time_saved = cancelled_task["last_bin_to_new_bin_time"] - new_time_to_first
+        # update subsequent tasks' timing, based on saved time from going directly to the first task after the cancelled one
+        for i in range(cancelled_index + 1, len(self.schedule)):
+            self.schedule[i]["start_time"] -= time_saved
+            self.schedule[i]["end_time"] -= time_saved
 
-            # update the first task's timing, considering it will now go directly from the previous task to the first task after the cancelled one
-            first_task_after["start_time"] = prev_time
-            first_task_after["end_time"] = prev_time + new_time_to_first
-            first_task_after["last_bin_to_new_bin_distance"] = dist_to_first
-            first_task_after["last_bin_to_new_bin_time"] = new_time_to_first
+        # Adjust occupied capacity for subsequent tasks (starting from next task), consdering the cancelled task's waste, and potential saved landfill trips
+        self.update_queue_task_waste(self.schedule[cancelled_index]["proposal_id"], cancelled_task["waste"], start_index=cancelled_index) # update subsequent tasks in queue to have more available space for the new task
 
-            # update subsequent tasks' timing, based on saved time from going directly to the first task after the cancelled one
-            for i in range(cancelled_index + 1, len(self.schedule)):
-                self.schedule[i]["start_time"] -= time_saved
-                self.schedule[i]["end_time"] -= time_saved
-
-            # Adjust occupied capacity for subsequent tasks (starting from next task), consdering the cancelled task's waste, and potential saved landfill trips
-            await self.update_queue_task_waste(self.schedule[cancelled_index]["proposal_id"], cancelled_task["waste"], start_index=cancelled_index) # update subsequent tasks in queue to have more available space for the new task
-
-            print(f"TRUCK_{self.id}: Updated schedule after cancelling {proposal_id}: {len(self.schedule)} tasks remaining")
+        print(f"TRUCK_{self.id}: Updated schedule after cancelling {proposal_id}: {len(self.schedule)} tasks remaining")
 
     # receives:
     # - proposal_id: id of the task from which to start the update
     # - waste_diff: amount of waste reduced from what was previously proposed
     # - start_index: index of the task from which to start the update (if not provided, will search for it)
-    async def update_queue_task_waste(self, proposal_id, waste_diff, start_index=-1):
+    def update_queue_task_waste(self, proposal_id, waste_diff, start_index=-1):
         
         if (start_index == -1):
             for i, entry in enumerate(self.schedule):
@@ -474,11 +468,10 @@ class TruckAgent(Agent):
                     print(f"TRUCK_{self.id}: Task {task['proposal_id']} still requires landfill due to insufficient capacity, no further waste adjustments")
                     break
 
-    async def update_queue_task_finish(self, proposal_id):
-        # async with self._lock:
-            # remove entry from schedule
-            self.schedule = [entry for entry in self.schedule if entry["proposal_id"] != proposal_id]
-            print(f"TRUCK_{self.id}: Completed task for proposal {proposal_id}, removed from schedule")
+    def update_queue_task_finish(self, proposal_id):
+        # remove entry from schedule
+        self.schedule = [entry for entry in self.schedule if entry["proposal_id"] != proposal_id]
+        print(f"TRUCK_{self.id}: Completed task for proposal {proposal_id}, removed from schedule")
 
     # Simulation of logic to accept a proposal
     def decide_accept_proposal(self, proposal):
@@ -492,10 +485,8 @@ class TruckAgent(Agent):
     #returns end latitude and longitude of the truck, and time to reach deposit from that location
     def go_to_deposit(self, curr_lat, curr_long):
         dist = get_distance_truck_to_deposit(curr_lat, curr_long)
-        # self.distance_traveled += dist
         final_lat = get_latitude_from_deposit()
         final_long = get_longitude_from_deposit()
-        # self.current_waste = 0
 
         return final_lat, final_long, dist / TRUCK_SPEED
 

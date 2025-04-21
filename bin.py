@@ -16,7 +16,7 @@ BIN_STATE_TWO = "SEND_CONTRACT_WAIT_RESPONSES"
 BIN_STATE_THREE = "PROPOSAL_SELECTION"
 
 WAIT_RESPONSES_TIMEOUT = 1.5 # seconds
-WAIT_TASK_RESULT_TIMEOUT = 1 # seconds
+WAIT_TASK_RESULT_TIMEOUT = 1 # extra seconds to wait for task result (+ max from selected trucks task times)
 WORLD_UPDATE_TIME = 1 # seconds
 
 def calculate_bin_threshold_ratio(fill_rate_time, fill_rate_quantity):
