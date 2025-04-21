@@ -18,7 +18,7 @@ TRUCK_STATE_TWO = "WAIT_RESPONSE"
 TRUCK_STATE_THREE = "PERFORM ACTION"
 
 TRUCK_CAPACITY = 80
-TRUCK_SPEED = 0.005  # kilometers per second
+TRUCK_SPEED = 0.05  # kilometers per second
 
 MAX_SCHEDULED_TASKS = 10
 
@@ -278,7 +278,9 @@ class TruckAgent(Agent):
             went_to_deposit = True
 
         dist_from_prev_to_new_bin = haversine(bin_lat, bin_long, last_lat, last_long) # distance from last task to bin
+        print(f"Haversine Distance (km) = {dist_from_prev_to_new_bin}")
         time_to_new_bin = dist_from_prev_to_new_bin / TRUCK_SPEED
+        print(f"TIME TO REACH BIN { time_to_new_bin}")
         start_time = last_time # time this task will start, considering last task end time
         final_time = last_time + time_to_new_bin # time bin is reached, considering last task end time
         final_occupied_capacity = min(self.capacity, last_occupied_capacity + bin_waste) # capacity to reach bin, considering last task end capacity

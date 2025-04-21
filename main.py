@@ -29,9 +29,9 @@ def display_stats(bin_stats, truck_stats, total_waste_collected):
     total_distance = 0
     for truck_id, stats in truck_stats.items():
         print(f"  Truck {truck_id}:")
-        print(f"    - Total Distance Traveled: {stats:.2f} km")
+        print(f"    - Total Distance Traveled: {stats:.20f} km")
         total_distance += stats
-    print("\n Total Distance Travelled ----> " + str(round(total_distance, 2)) + " km")
+    print("\n Total Distance Travelled ----> " + str(total_distance) + " km")
     print("\n Total Waste Collected ----> " + str(total_waste_collected))
 
 async def main():
@@ -40,14 +40,16 @@ async def main():
       #  raise ValueError("Missing SPADE_PASS in environment. Check .env file or environment variables.")
     
     # Provided by the user via terminal: num_trucks, bin_filling_rate_time, bin_filling_rate_quantity
-    if len(sys.argv) == 4:
+    if len(sys.argv) == 5:
         num_trucks = int(sys.argv[1])
         bin_filling_rate_time = int(sys.argv[2])
         bin_filling_rate_quantity = int(sys.argv[3])
+        sim_duration = int(sys.argv[4])
     else:
         num_trucks = int(input("Enter the number of trucks: "))
         bin_filling_rate_time = int(input("Enter bin filling rate time interval: "))
         bin_filling_rate_quantity = int(input("Enter bin filling rate quantity: "))
+        sim_duration = int(input("Enter how many seconds the simulation should run: "))
 
     # read information from dataset
     df = pd.read_csv("dataset/dataset.csv")
@@ -98,7 +100,6 @@ async def main():
         fsmagent.web.start(hostname="127.0.0.1", port=port_str)
         port += 1
     
-    sim_duration = 30 # seconds
     await asyncio.sleep(sim_duration)
 
     # Gracefully stop all agents

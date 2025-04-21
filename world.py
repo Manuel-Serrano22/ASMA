@@ -26,7 +26,7 @@ class WorldAgent(Agent):
             if msg and msg.metadata.get("type") == "bin_status_update":
                 bin_id, total_time_full, total_overflow_peaks, waste_level, current_waste = msg.body.strip().split(";")
                 total_time_full = float(total_time_full)
-                total_overflow_peak = float(total_overflow_peaks)
+                total_overflow_peaks = float(total_overflow_peaks)
                 waste_level = ast.literal_eval(waste_level)
                 print(f"Waste level is this: {waste_level}")
                 print(f"\033[93mWORLD: Received bin update -> {bin_id}: {total_time_full}/{total_overflow_peaks}/{waste_level}\033[0m")

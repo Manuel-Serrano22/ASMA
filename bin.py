@@ -85,7 +85,7 @@ class BinAgent(Agent):
 
             excess = self.agent.bin_fullness - self.agent.max_capacity
 
-            if excess > 0:   
+            if self.agent.bin_fullness >= 20:   
                 if self.agent.time_full_start is None:
                     self.agent.time_full_start = self.agent.time
 
@@ -303,7 +303,7 @@ class BinAgent(Agent):
     async def setup(self):
         sendUpdate = self.SendCapacityUpdateBehaviour(period=WORLD_UPDATE_TIME)  # every 5 seconds, send update to world
         self.add_behaviour(sendUpdate)
-        binFill = self.FillBinBehaviour(period=self.fill_rate_time) # every 1 seconds, fill the bin with garbage # AKA BIN_FILL_SPEED
+        binFill = self.FillBinBehaviour(period=self.fill_rate_time) # every x seconds, fill the bin with garbage # AKA BIN_FILL_SPEED
         self.add_behaviour(binFill)
         fsm = self.setupFSMBehaviour()
         self.add_behaviour(fsm)
