@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 import truck as truck
 
-load_dotenv()
+load_dotenv() 
 SPADE_PASS = os.getenv('SPADE_PASS')
 
 BIN_STATE_ONE = "CHECK_BIN"
@@ -85,7 +85,7 @@ class BinAgent(Agent):
 
             excess = self.agent.bin_fullness - self.agent.max_capacity
 
-            if self.agent.bin_fullness >= 20:   
+            if excess > 0:   
                 if self.agent.time_full_start is None:
                     self.agent.time_full_start = self.agent.time
 
