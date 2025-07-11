@@ -28,20 +28,20 @@ Variáveis necessárias para implementar as métricas pedidas no projeto
 
 **Bin**
 
- - Quando atinge o limite de enchimento, envia propostas com a sua posição no grafo; ✅
- - Após receber todas as respostas, escolhe o camião mais próximo que tenha espaço disponível para recolher o lixo; ✅
+ - Quando atinge o limite de enchimento, envia propostas com a sua posição no grafo;
+ - Após receber todas as respostas, escolhe o camião mais próximo que tenha espaço disponível para recolher o lixo;
 - **Dúvida**: o que acontece caso não existam Trucks disponiveis??
 
 ## Behaviours
 
 **Truck**
 
- - FSM, recebe prospota + calcula distância ao Bin + envia resposta + espera resposta + executa tarefa (caso seja escolhido); (Afonso) (In Progress)
- - Periodicamente, verificar a sua capacidade => Periódico; ✅
+ - FSM, recebe prospota + calcula distância ao Bin + envia resposta + espera resposta + executa tarefa (caso seja escolhido);
+ - Periodicamente, verificar a sua capacidade => Periódico;
 
 **Bin**
 
-- Taxa de enchimento => Periódico; ✅
-- Quando o nível de lixo atinge o limite, o comportamento anterior começa a contar o tempo e a quantidade de lixo que ultrapassa o limite; ✅
-- Periodicamente, envia a sua capacidade atual aos Trucks; => Periódico; ✅
-- FSM para gerir os acordos com os Trucks (propostas e seleção); (Pedro) (In Progress)
+- Taxa de enchimento => Periódico;
+- Quando o nível de lixo atinge o limite, o comportamento anterior começa a contar o tempo e a quantidade de lixo que ultrapassa o limite;
+- Periodicamente, envia a sua capacidade atual aos Trucks; => Periódico;
+- FSM para gerir os acordos com os Trucks (propostas e seleção);
